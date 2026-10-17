@@ -45,3 +45,24 @@
 .battle-selected{outline:3px solid #e8bb6c;outline-offset:2px}
 .battle-selection input{max-width:140px;padding:5px}.battle-selection input[type=color]{width:40px;padding:2px}.battle-selection select{max-width:150px;padding:5px}
 @media(max-width:780px){.battle-note{display:none}.battle-scroll{height:380px}}
+
+/* AMBUSH_TRAY_032 */
+.ambush-tray{background:#4b5058;border-bottom:2px solid #a5aab2;padding:12px;color:#f1f3f5}
+.ambush-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.ambush-head strong{font-size:12px;letter-spacing:.12em}
+.ambush-head span,.ambush-tray p{font-size:12px;color:#d4d7db}
+.ambush-tray p{margin:6px 0 10px}
+.ambush-tokens{display:flex;flex-wrap:wrap;gap:8px;min-height:55px}
+.ambush-item{display:flex;align-items:center;gap:7px;border:1px solid #8a929b;background:#333a43;border-radius:8px;padding:5px 7px;font-size:12px;cursor:grab}
+.ambush-placing{outline:2px solid #e9bd72}
+.ambush-chip{width:30px;height:30px;border:2px solid #e8edf4;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:800}
+.ambush-item button,.ambush-controls button{padding:5px 8px;font-size:12px}
+.ambush-controls{display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
+.ambush-controls label{display:flex;gap:6px;align-items:center;font-size:12px}
+.ambush-ghost{position:absolute;display:grid;place-items:center;border:3px dashed #f6e0a5;border-radius:50%;opacity:.55;z-index:2;color:white;font-weight:800;cursor:pointer;user-select:none}
+
+/* DEBUG_RECORDER_0322 */
+.debug-recorder{border-top:1px solid #a19b79;background:#252e3b;padding:10px 12px;color:#e8edf6}
+.debug-head{display:flex;justify-content:space-between;gap:12px;font-size:12px}.debug-head strong{letter-spacing:.09em}.debug-head span{color:#d4bc89}
+.debug-controls{display:flex;gap:7px;flex-wrap:wrap;margin:9px 0}.debug-controls button{font-size:12px;padding:6px 9px}.debug-controls button:disabled{opacity:.45;cursor:not-allowed}
+.debug-recorder p{color:#aab9ca;font-size:11px;margin:5px 0}.debug-events{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#101722;padding:9px;border-radius:6px;font-size:10px;line-height:1.5}

@@ -60,8 +60,14 @@ type Room={state:GameState;dmSecret:string;members:Map<string,Member>};
 const rooms=new Map<string,Room>();
 registerLiveKitRoutes(app, (roomId, socketId) => rooms.get(roomId)?.members.get(socketId)?.name ?? null);
 const shortId=()=>randomUUID().slice(0,8);
-function publicRoom(room:Room){return {state:room.state,members:[...room.members.values()]};}
-function send(room:Room){io.to(room.state.roomId).emit('room:state',publicRoom(room));}
+// AMBUSH_TRAY_032: never transmit hidden tokens to a non-DM socket.
+function publicRoom(room:Room,viewer:Member){
+ const state={...room.state,tokens:viewer.isDm?room.state.tokens:room.state.tokens.filter(t=>!t.staged)};
+ return {state,members:[...room.members.values()]};
+}
+function send(room:Room){
+ for(const m of room.members.values())io.to(m.id).emit('room:state',publicRoom(room,m));
+}
 app.get('/api/health',async()=>({ok:true,version:'0.1.0'}));
 app.post('/api/rooms',async()=>{
  const id=shortId(),secret=randomUUID();
@@ -115,16 +121,37 @@ io.on('connection',socket=>{
   const parsed=z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable()}).safeParse(raw);
   if(!parsed.success)return reply?.({error:'Invalid token'});
   if(parsed.data.ownerId!==null&&!room.members.has(parsed.data.ownerId))return reply?.({error:'Unknown player'});
-  const token:Token={id:randomUUID(),name:parsed.data.name,x:2,y:2,ownerId:parsed.data.ownerId,color:parsed.data.color};
+  const token:Token={id:randomUUID(),name:parsed.data.name,x:2,y:2,ownerId:parsed.data.ownerId,color:parsed.data.color,staged:true,prepared:false};
   room.state.tokens.push(token);room.state.revision++;send(room);reply?.({ok:true});
  });
  socket.on('token:move',(raw,reply)=>{
+  const traceServer=(detail:Record<string,unknown>)=>{const r=current();if(r)for(const m of r.members.values())if(m.isDm)io.to(m.id).emit('debug:server',detail);};
   const room=current();if(!room||!member)return reply?.({error:'Not joined'});
   const parsed=moveSchema.safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid move'});
   const token=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
   if(!token)return reply?.({error:'Token not found'});
-  if(!member.isDm&&token.ownerId!==member.id)return reply?.({error:'Not your token'});
-  token.x=parsed.data.x;token.y=parsed.data.y;room.state.revision++;send(room);reply?.({ok:true});
+  if(!member.isDm&&(token.staged||token.ownerId!==member.id))return reply?.({error:'Not your token'});
+  const debugOldPosition={x:token.x,y:token.y};
+  token.x=parsed.data.x;token.y=parsed.data.y;
+  traceServer({at:new Date().toISOString(),by:member.id,tokenId:token.id,name:token.name,from:debugOldPosition,to:{x:token.x,y:token.y},revision:room.state.revision+1});
+  if(member.isDm&&token.staged)token.prepared=true;room.state.revision++;send(room);reply?.({ok:true});
+ });
+ // Hidden tokens can be positioned privately; reveal operations broadcast once.
+ socket.on('token:stage',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=z.object({tokenId:z.string().uuid()}).safeParse(raw);
+  if(!parsed.success)return reply?.({error:'Invalid token'});
+  const t=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
+  if(!t)return reply?.({error:'Token not found'});
+  t.staged=true;t.prepared=false;room.state.revision++;send(room);reply?.({ok:true});
+ });
+ socket.on('token:reveal',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=z.object({tokenIds:z.array(z.string().uuid()).min(1).max(200)}).safeParse(raw);
+  if(!parsed.success)return reply?.({error:'Invalid reveal request'});
+  const ids=new Set(parsed.data.tokenIds);
+  for(const t of room.state.tokens)if(ids.has(t.id)&&t.staged&&t.prepared)t.staged=false;
+  room.state.revision++;send(room);reply?.({ok:true});
  });
  socket.on('initiative:add',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
