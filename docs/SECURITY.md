@@ -1,0 +1,3 @@
+# Security notes
+
+Foundation is **local-development only**. Do not expose it to the public internet. DM secret is a bearer credential kept in sessionStorage, and guest sessions are not authenticated. Room IDs are short and should not be treated as secrets. Server currently validates game mutations but does not implement request throttling, audit logging, durable identity, secure cookie sessions, CSRF strategy, file-upload security or production authorization. For production: add identity and secure sessions, enforce origin and rate limits, TLS, LiveKit short-lived signed tokens, role-specific state projection, private map assets, input quotas, backups and security tests.

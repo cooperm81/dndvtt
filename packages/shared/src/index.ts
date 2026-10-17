@@ -1,0 +1,9 @@
+import { z } from 'zod';
+export const tokenSchema = z.object({id:z.string().uuid(),name:z.string().min(1).max(40),x:z.number().finite(),y:z.number().finite(),ownerId:z.string().nullable(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/)});
+export const moveSchema=z.object({tokenId:z.string().uuid(),x:z.number().finite().min(0).max(10000),y:z.number().finite().min(0).max(10000)});
+export const rollSchema=z.object({count:z.number().int().min(1).max(20),sides:z.union([z.literal(4),z.literal(6),z.literal(8),z.literal(10),z.literal(12),z.literal(20),z.literal(100)]),modifier:z.number().int().min(-100).max(100)});
+export const initiativeSchema=z.object({id:z.string().uuid(),name:z.string().min(1).max(40),score:z.number().int().min(-100).max(100)});
+export type Token=z.infer<typeof tokenSchema>;
+export type Initiative=z.infer<typeof initiativeSchema>;
+export type GameState={roomId:string;tokens:Token[];initiative:Initiative[];turnIndex:number;round:number;revision:number};
+export type RollResult={by:string;dice:number[];modifier:number;total:number;sides:number;at:string};
