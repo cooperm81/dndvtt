@@ -53,7 +53,7 @@ app.addHook('onRequest',async(request,reply)=>{
  if(request.url.startsWith('/api/') && !request.url.startsWith('/api/auth/') && request.url!=='/api/health' && !authorized(request.headers.cookie))
   return reply.code(401).send({error:'Access password required'});
 });
-const io=new Server(app.server,{cors:{origin}});
+const io=new Server(app.server,{cors:{origin},maxHttpBufferSize:3_500_000});
 io.use((socket,next)=>authorized(socket.handshake.headers.cookie)?next():next(new Error('Access password required')));
 type Member={id:string;name:string;isDm:boolean};
 type Room={state:GameState;dmSecret:string;members:Map<string,Member>};
@@ -69,6 +69,12 @@ app.post('/api/rooms',async()=>{
  rooms.set(id,{state,dmSecret:secret,members:new Map()});
  return {roomId:id,dmSecret:secret};
 });
+const mapSchema=z.object({
+ image:z.string().max(2800000).refine(v=>v===''||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(v),'Invalid image'),
+ width:z.number().int().min(200).max(4000),height:z.number().int().min(200).max(4000),
+ cellSize:z.number().int().min(16).max(200),offsetX:z.number().int().min(-2000).max(2000),offsetY:z.number().int().min(-2000).max(2000),showGrid:z.boolean()
+});
+const tokenEditSchema=z.object({tokenId:z.string().uuid(),name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable()});
 const joinSchema=z.object({roomId:z.string().min(1),name:z.string().trim().min(1).max(40),dmSecret:z.string().optional()});
 io.on('connection',socket=>{
  let roomId:string|undefined;
@@ -86,6 +92,24 @@ io.on('connection',socket=>{
   reply({ok:true,member});send(room);
  });
  function current(){if(!roomId||!member)return null;const room=rooms.get(roomId);return room?.members.has(socket.id)?room:null;}
+ socket.on('map:update',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=mapSchema.safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid map or image too large (max ~2 MB)'});
+  room.state.battleMap=parsed.data;room.state.revision++;send(room);reply?.({ok:true});
+ });
+ socket.on('token:edit',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=tokenEditSchema.safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid token edit'});
+  const token=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
+  if(!token)return reply?.({error:'Token not found'});
+  if(parsed.data.ownerId!==null&&!room.members.has(parsed.data.ownerId))return reply?.({error:'Unknown owner'});
+  Object.assign(token,{name:parsed.data.name,color:parsed.data.color,ownerId:parsed.data.ownerId});room.state.revision++;send(room);reply?.({ok:true});
+ });
+ socket.on('token:delete',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=z.object({tokenId:z.string().uuid()}).safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid token'});
+  room.state.tokens=room.state.tokens.filter(t=>t.id!==parsed.data.tokenId);room.state.revision++;send(room);reply?.({ok:true});
+ });
  socket.on('token:add',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
   const parsed=z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable()}).safeParse(raw);

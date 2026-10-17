@@ -5,5 +5,6 @@ export const rollSchema=z.object({count:z.number().int().min(1).max(20),sides:z.
 export const initiativeSchema=z.object({id:z.string().uuid(),name:z.string().min(1).max(40),score:z.number().int().min(-100).max(100)});
 export type Token=z.infer<typeof tokenSchema>;
 export type Initiative=z.infer<typeof initiativeSchema>;
-export type GameState={roomId:string;tokens:Token[];initiative:Initiative[];turnIndex:number;round:number;revision:number};
+export type BattleMap={image:string; width:number; height:number; cellSize:number; offsetX:number; offsetY:number; showGrid:boolean};
+export type GameState={roomId:string;tokens:Token[];initiative:Initiative[];turnIndex:number;round:number;revision:number;battleMap?:BattleMap};
 export type RollResult={by:string;dice:number[];modifier:number;total:number;sides:number;at:string};

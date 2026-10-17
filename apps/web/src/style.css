@@ -27,3 +27,21 @@
 .media-shell .lk-grid-layout:has(> .lk-participant-tile:nth-child(3)) > .lk-participant-tile { max-height:145px; }
 .media-shell .lk-chat { min-width:240px; max-width:min(360px,42vw); }
 @media(max-width:760px) { .media-shell .media-live { height:300px; } .media-shell .lk-chat { min-width:190px; max-width:55vw; } }
+
+/* BATTLE_MAP_031 */
+.battle-actions,.battle-settings,.battle-selection{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 12px;background:#1b2939;border-bottom:1px solid #39495e;font-size:12px}
+.battle-actions label,.battle-settings label{display:flex;align-items:center;gap:6px}
+.battle-actions input[type=range]{width:105px}.battle-settings input[type=number]{width:72px;padding:5px}.battle-settings input[type=checkbox]{accent-color:#d7aa64}
+.battle-actions button,.battle-settings button,.battle-selection button{padding:6px 9px;font-size:12px}
+.battle-note{color:#9cabc0;margin-left:auto}
+.battle-upload{border:1px solid #aa8756;background:#977446;border-radius:7px;padding:7px 10px;cursor:pointer;color:white;font-weight:700}
+.battle-upload input{display:none}
+.battle-message{padding:5px 12px;color:#d3bd92;font-size:12px}
+.battle-scroll{height:500px;min-height:350px;overflow:auto;background:#465363;position:relative;overscroll-behavior:contain}
+.battle-canvas{position:relative;overflow:hidden;min-width:0;min-height:0}
+.battle-content{position:absolute;left:0;top:0;background-color:#465363;background-repeat:no-repeat}
+.battle-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(#a5b6c099 1px,transparent 1px),linear-gradient(90deg,#a5b6c099 1px,transparent 1px)}
+.battle-token{position:absolute;display:grid;place-items:center;border-radius:50%;border:3px solid #f0f4f9;box-shadow:0 2px 8px #0009;color:white;font-weight:800;font-size:13px;user-select:none;touch-action:none;z-index:2}
+.battle-selected{outline:3px solid #e8bb6c;outline-offset:2px}
+.battle-selection input{max-width:140px;padding:5px}.battle-selection input[type=color]{width:40px;padding:2px}.battle-selection select{max-width:150px;padding:5px}
+@media(max-width:780px){.battle-note{display:none}.battle-scroll{height:380px}}
