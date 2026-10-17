@@ -8,3 +8,22 @@
 
 /* v0.2.1: split create/join landing */
 .entry-shell{width:min(100%,960px);padding:24px 0}.entry-shell>.brand,.entry-shell>h1,.entry-intro{text-align:center}.entry-shell>h1{margin:24px 0 8px}.entry-intro{color:#a9b8cc;margin:0 0 30px}.entry-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.entry-panel{background:#1b2636;border:1px solid #38465a;border-radius:16px;padding:30px;display:flex;flex-direction:column;min-height:370px}.entry-panel h2{font-size:23px;margin:10px 0 6px}.entry-panel>p{color:#a9b8cc;margin:0}.entry-icon{color:#e2b775}.entry-panel form{display:flex;flex-direction:column;flex:1}.entry-panel label{display:grid;gap:8px;font-size:13px;color:#bdc9d9;margin:20px 0 0}.entry-panel input{width:100%}.entry-panel button{width:100%;margin-top:auto}.entry-hint{font-size:12px;color:#93a3b8;margin:20px 0}.entry-panel form label:last-of-type{margin-bottom:24px}.entry-shell>.error{text-align:center}.join-card form button{width:100%}@media(max-width:700px){.entry-grid{grid-template-columns:1fr}.entry-panel{min-height:300px}.entry-shell{padding:12px 0}}
+
+
+/* MEDIA_UX_V03 */
+.media-section { max-height: none; min-height: 0; display:block; overflow:visible; }
+.media-shell { width:100%; min-width:0; }
+.media-heading { display:flex; align-items:center; justify-content:space-between; padding:0 4px 8px; color:#b8c7d9; font-size:12px; font-weight:700; }
+.media-collapse-toggle { padding:5px 12px; font-size:12px; }
+.media-shell .media-live { height:350px; width:100%; overflow:hidden; }
+.media-shell .media-live.media-collapsed { height:0; visibility:hidden; }
+.media-shell .lk-video-conference { height:100%; }
+.media-shell .lk-grid-layout { display:grid!important; gap:8px; align-content:center; justify-content:center; padding:8px; }
+.media-shell .lk-grid-layout > .lk-participant-tile { min-width:0; overflow:hidden; border-radius:8px; aspect-ratio:16/9; }
+.media-shell .lk-grid-layout video, .media-shell .lk-focus-layout video { object-fit:contain!important; background:#101722; }
+.media-shell .lk-grid-layout:has(> .lk-participant-tile:only-child) { grid-template-columns:minmax(0,min(100%,540px))!important; grid-template-rows:minmax(0,1fr)!important; }
+.media-shell .lk-grid-layout:has(> .lk-participant-tile:nth-child(2)):not(:has(> .lk-participant-tile:nth-child(3))) { grid-template-columns:repeat(2,minmax(0,1fr))!important; grid-template-rows:minmax(0,1fr)!important; }
+.media-shell .lk-grid-layout:has(> .lk-participant-tile:nth-child(3)) { grid-template-columns:repeat(2,minmax(0,min(50%,520px)))!important; grid-template-rows:repeat(2,minmax(0,1fr))!important; }
+.media-shell .lk-grid-layout:has(> .lk-participant-tile:nth-child(3)) > .lk-participant-tile { max-height:145px; }
+.media-shell .lk-chat { min-width:240px; max-width:min(360px,42vw); }
+@media(max-width:760px) { .media-shell .media-live { height:300px; } .media-shell .lk-chat { min-width:190px; max-width:55vw; } }

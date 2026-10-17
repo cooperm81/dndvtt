@@ -58,7 +58,7 @@ io.use((socket,next)=>authorized(socket.handshake.headers.cookie)?next():next(ne
 type Member={id:string;name:string;isDm:boolean};
 type Room={state:GameState;dmSecret:string;members:Map<string,Member>};
 const rooms=new Map<string,Room>();
-registerLiveKitRoutes(app, (roomId, socketId) => rooms.get(roomId)?.members.has(socketId) ?? false);
+registerLiveKitRoutes(app, (roomId, socketId) => rooms.get(roomId)?.members.get(socketId)?.name ?? null);
 const shortId=()=>randomUUID().slice(0,8);
 function publicRoom(room:Room){return {state:room.state,members:[...room.members.values()]};}
 function send(room:Room){io.to(room.state.roomId).emit('room:state',publicRoom(room));}

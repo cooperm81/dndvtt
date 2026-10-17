@@ -7,6 +7,7 @@ export default function MediaRoom({ roomId, socketId, api }: Props) {
   const [connection, setConnection] = useState<{url:string;token:string}|null>(null);
   const [error, setError] = useState('');
   const [enabled, setEnabled] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
@@ -21,10 +22,10 @@ export default function MediaRoom({ roomId, socketId, api }: Props) {
   if (!enabled) return <div className="media-start"><button onClick={() => setEnabled(true)}>Join voice &amp; video</button><small>Camera and microphone permissions will be requested.</small></div>;
   if (error) return <div className="media-start" role="alert">{error} <button onClick={() => {setEnabled(false);setConnection(null);}}>Retry</button></div>;
   if (!connection) return <div className="media-start">Connecting to media…</div>;
-  return <div className="media-live" data-lk-theme="default">
+  return <div className="media-shell" data-lk-theme="default"><div className="media-heading"><span>Voice &amp; video</span><button type="button" className="media-collapse-toggle" onClick={() => setCollapsed(v => !v)} aria-expanded={!collapsed}>{collapsed ? "Show video" : "Hide video"}</button></div><div className={"media-live" + (collapsed ? " media-collapsed" : "")}>
     <LiveKitRoom token={connection.token} serverUrl={connection.url} connect={true} audio={true} video={true}
       onDisconnected={() => {setEnabled(false);setConnection(null);}} onError={e => setError(e.message)}>
       <VideoConference />
     </LiveKitRoom>
-  </div>;
+  </div></div>;
 }
