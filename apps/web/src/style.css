@@ -5,3 +5,6 @@
 .media-start small { opacity: .7; }
 .media-live { width: 100%; height: 260px; min-width: 0; }
 .media-live .lk-video-conference { height: 100%; }
+
+/* v0.2.1: split create/join landing */
+.entry-shell{width:min(100%,960px);padding:24px 0}.entry-shell>.brand,.entry-shell>h1,.entry-intro{text-align:center}.entry-shell>h1{margin:24px 0 8px}.entry-intro{color:#a9b8cc;margin:0 0 30px}.entry-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.entry-panel{background:#1b2636;border:1px solid #38465a;border-radius:16px;padding:30px;display:flex;flex-direction:column;min-height:370px}.entry-panel h2{font-size:23px;margin:10px 0 6px}.entry-panel>p{color:#a9b8cc;margin:0}.entry-icon{color:#e2b775}.entry-panel form{display:flex;flex-direction:column;flex:1}.entry-panel label{display:grid;gap:8px;font-size:13px;color:#bdc9d9;margin:20px 0 0}.entry-panel input{width:100%}.entry-panel button{width:100%;margin-top:auto}.entry-hint{font-size:12px;color:#93a3b8;margin:20px 0}.entry-panel form label:last-of-type{margin-bottom:24px}.entry-shell>.error{text-align:center}.join-card form button{width:100%}@media(max-width:700px){.entry-grid{grid-template-columns:1fr}.entry-panel{min-height:300px}.entry-shell{padding:12px 0}}

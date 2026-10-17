@@ -1,3 +1,7 @@
+import { createHmac, createHash, timingSafeEqual } from 'node:crypto';
+import fastifyStatic from '@fastify/static';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import 'dotenv/config';
 import { registerLiveKitRoutes } from './livekit.js';
 import Fastify from 'fastify';
@@ -10,7 +14,47 @@ import { moveSchema, rollSchema, initiativeSchema, type GameState, type Token } 
 const app=Fastify({logger:true});
 const origin=process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 await app.register(cors,{origin});
+// PRIVATE_GAME_ACCESS_V1: shared family password; set GAME_ACCESS_PASSWORD on Railway.
+const gamePassword = process.env.GAME_ACCESS_PASSWORD || '';
+if (process.env.RAILWAY_ENVIRONMENT && !gamePassword) throw new Error('Set GAME_ACCESS_PASSWORD in Railway Variables before deploying');
+const cookieName = 'dndvtt_access';
+const signingKey = createHash('sha256').update('dndvtt-session:' + gamePassword).digest();
+const equal = (a: string, b: string) => {
+ const x = Buffer.from(a); const y = Buffer.from(b);
+ return x.length === y.length && timingSafeEqual(x,y);
+};
+const sign = (data: string) => createHmac('sha256', signingKey).update(data).digest('hex');
+const cookieValue = (header: string | undefined) => (header || '').split(';').map(v=>v.trim()).find(v=>v.startsWith(cookieName+'='))?.slice(cookieName.length+1) || '';
+function authorized(header: string | undefined) {
+ if (!gamePassword) return true; // Local development only
+ const [expiry,signature,extra] = cookieValue(header).split('.');
+ if (!expiry || !signature || extra || !/^\d+$/.test(expiry) || Number(expiry) < Date.now()) return false;
+ return equal(signature, sign(expiry));
+}
+app.get('/api/auth/status', async (request) => ({authenticated:authorized(request.headers.cookie), required:!!gamePassword}));
+const attempts = new Map<string,{count:number;until:number}>();
+app.post('/api/auth/login', async (request,reply) => {
+ const ip=request.ip; const now=Date.now(); const current=attempts.get(ip);
+ if(current && current.until>now && current.count>=10) return reply.code(429).send({error:'Too many attempts. Try again in 15 minutes.'});
+ const body=request.body as {password?:unknown}|null;
+ const supplied=typeof body?.password==='string'?body.password:'';
+ if(gamePassword && !equal(createHash('sha256').update(supplied).digest('hex'),createHash('sha256').update(gamePassword).digest('hex'))){
+  const count=current && current.until>now?current.count+1:1;
+  attempts.set(ip,{count,until:now+15*60*1000});
+  return reply.code(401).send({error:'Incorrect access password'});
+ }
+ attempts.delete(ip);
+ const expiry=String(Date.now()+7*24*60*60*1000);
+ const secure=process.env.RAILWAY_ENVIRONMENT?' Secure;':'';
+ reply.header('Set-Cookie',`${cookieName}=${expiry}.${sign(expiry)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800;${secure}`);
+ return {ok:true};
+});
+app.addHook('onRequest',async(request,reply)=>{
+ if(request.url.startsWith('/api/') && !request.url.startsWith('/api/auth/') && request.url!=='/api/health' && !authorized(request.headers.cookie))
+  return reply.code(401).send({error:'Access password required'});
+});
 const io=new Server(app.server,{cors:{origin}});
+io.use((socket,next)=>authorized(socket.handshake.headers.cookie)?next():next(new Error('Access password required')));
 type Member={id:string;name:string;isDm:boolean};
 type Room={state:GameState;dmSecret:string;members:Map<string,Member>};
 const rooms=new Map<string,Room>();
@@ -77,6 +121,15 @@ io.on('connection',socket=>{
   io.to(room.state.roomId).emit('dice:result',result);reply?.({ok:true});
  });
  socket.on('disconnect',()=>{if(roomId){const room=rooms.get(roomId);room?.members.delete(socket.id);if(room)send(room);}});
+});
+// Serve the compiled React frontend and game API on one Railway service.
+const frontendDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+await app.register(fastifyStatic, { root: frontendDist, prefix: '/' });
+app.setNotFoundHandler((request, reply) => {
+  if (request.method === 'GET' && !request.url.startsWith('/api/') && !request.url.startsWith('/socket.io/')) {
+    return reply.sendFile('index.html');
+  }
+  return reply.code(404).send({ error: 'Not found' });
 });
 const port=Number(process.env.PORT||3001);
 await app.listen({port,host:'0.0.0.0'});
