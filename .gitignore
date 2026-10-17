@@ -4,3 +4,9 @@ dist/
 *.db
 *.db-*
 .DS_Store
+
+# LiveKit credentials
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
