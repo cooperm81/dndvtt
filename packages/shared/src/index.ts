@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const tokenSchema = z.object({id:z.string().uuid(),name:z.string().min(1).max(40),x:z.number().finite(),y:z.number().finite(),ownerId:z.string().nullable(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/)});
+export const tokenSchema = z.object({id:z.string().uuid(),name:z.string().min(1).max(40),x:z.number().finite(),y:z.number().finite(),ownerId:z.string().nullable(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),staged:z.boolean().optional(),prepared:z.boolean().optional()});
 export const moveSchema=z.object({tokenId:z.string().uuid(),x:z.number().finite().min(0).max(10000),y:z.number().finite().min(0).max(10000)});
 export const rollSchema=z.object({count:z.number().int().min(1).max(20),sides:z.union([z.literal(4),z.literal(6),z.literal(8),z.literal(10),z.literal(12),z.literal(20),z.literal(100)]),modifier:z.number().int().min(-100).max(100)});
 export const initiativeSchema=z.object({id:z.string().uuid(),name:z.string().min(1).max(40),score:z.number().int().min(-100).max(100)});
