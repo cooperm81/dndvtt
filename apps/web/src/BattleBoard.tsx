@@ -1,17 +1,18 @@
 import {trace} from './DebugRecorder';
 import {useEffect,useRef,useState,type ChangeEvent,type PointerEvent} from 'react';
-import type {GameState} from '@tabletop/shared';
+import type {GameState,CreatureSize} from '@tabletop/shared';
 
 type Member={id:string;name:string;isDm:boolean};
-type Props={state:GameState;members:Member[];isDm:boolean;meId:string;emit:(event:string,payload:unknown)=>void};
+type Props={state:GameState;members:Member[];isDm:boolean;meId:string;emit:(event:string,payload:unknown,onAck?:(error?:string)=>void)=>void};
+const footprint=(size?:CreatureSize)=>({Small:1,Medium:1,Large:2,Huge:3,Gargantuan:4})[size??'Medium'];
 const blank={image:'',width:1200,height:800,cellSize:50,offsetX:0,offsetY:0,showGrid:true};
 export default function BattleBoard({state,members,isDm,meId,emit}:Props){
  const map=state.battleMap??blank;
- const [zoom,setZoom]=useState(75);
+ const [zoom,setZoom]=useState(75);const [allowStack,setAllowStack]=useState(false);
  const [selected,setSelected]=useState('');
  const [placing,setPlacing]=useState(''); // token awaiting a hidden map location
  const [showPrepared,setShowPrepared]=useState(true);
- const [editing,setEditing]=useState<{name:string;color:string;ownerId:string}|null>(null);
+ const [editing,setEditing]=useState<{name:string;color:string;ownerId:string;size:CreatureSize}|null>(null);
  const [loading,setLoading]=useState(false);
  const [message,setMessage]=useState('');
  const boardRef=useRef<HTMLDivElement>(null);
@@ -19,11 +20,12 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
  const [pendingMove,setPendingMove]=useState<{id:string;x:number;y:number;originX:number;originY:number}|null>(null); // HOLD_UNTIL_SYNC_V031
  const drag=useRef<{id:string;pointerId:number;startX:number;startY:number;originX:number;originY:number;active:boolean}|null>(null);
  const token=state.tokens.find(t=>t.id===selected);
+ const dirty=!!(token&&editing&&(editing.name!==token.name||editing.color!==token.color||editing.ownerId!==(token.ownerId??'')||editing.size!==(token.size??'Medium')));
  const staged=state.tokens.filter(t=>t.staged);
  const prepared=staged.filter(t=>t.prepared);
  function prepareAt(tokenId:string,clientX:number,clientY:number){
   const p=gridAt(clientX,clientY);
-  emit('token:move',{tokenId,x:p.x,y:p.y});
+  emit('token:move',{tokenId,x:p.x,y:p.y,allowStack:isDm&&allowStack});
   setPlacing('');
  }
  function boardClick(e:React.MouseEvent<HTMLDivElement>){
@@ -74,11 +76,11 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
  }
  // DRAG_LIFECYCLE_0323: document-level completion survives token DOM/capture changes.
  function down(e:PointerEvent<HTMLDivElement>,t:GameState['tokens'][number]){
-  if(!isDm&&t.ownerId!==meId)return;
+  if(!isDm&&(!state.playerMovementEnabled||t.ownerId!==meId))return;
   if(e.button!==0)return;
   e.preventDefault();e.stopPropagation();
   setPlacing('');
-  setSelected(t.id);setEditing({name:t.name,color:t.color,ownerId:t.ownerId??''});
+  setSelected(t.id);setEditing({name:t.name,color:t.color,ownerId:t.ownerId??'',size:t.size??'Medium'});
   drag.current={id:t.id,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,originX:t.x,originY:t.y,active:false};
   setDragPreview(null);
   setPendingMove(null);
@@ -118,7 +120,7 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
   trace('DRAG_FINISH_0323',{id:d.id,reason,moved,origin:{x:d.originX,y:d.originY},destination:next});
   if(moved&&(next.x!==d.originX||next.y!==d.originY)){
    setPendingMove({id:d.id,...next,originX:d.originX,originY:d.originY});
-   emit('token:move',{tokenId:d.id,...next});
+   emit('token:move',{tokenId:d.id,...next,allowStack:isDm&&allowStack},error=>{if(error)setPendingMove(p=>p?.id===d.id?null:p);});
   }
   setDragPreview(null);
  }
@@ -160,8 +162,8 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
     {staged.map(t=><div className={'ambush-item'+(placing===t.id?' ambush-placing':'')} key={t.id} draggable
       onDragStart={e=>{e.dataTransfer.setData('text/plain',t.id);e.dataTransfer.effectAllowed='move';}}>
       <span className="ambush-chip" style={{background:t.color}}>{t.name.slice(0,2).toUpperCase()}</span>
-      <span>{t.name}{t.prepared?' · Prepared':' · Unplaced'}</span>
-      <button type="button" onClick={()=>{setSelected(t.id);setEditing({name:t.name,color:t.color,ownerId:t.ownerId??''});setPlacing(t.id);}}>Place</button>
+      <span>{t.name} ({t.size??'Medium'}){t.prepared?' · Prepared':' · Unplaced'}</span>
+      <button type="button" onClick={()=>{setSelected(t.id);setEditing({name:t.name,color:t.color,ownerId:t.ownerId??'',size:t.size??'Medium'});setPlacing(t.id);}}>Place</button>
       <button type="button" disabled={!t.prepared} onClick={()=>emit('token:reveal',{tokenIds:[t.id]})}>Reveal</button>
     </div>)}
    </div>
@@ -174,10 +176,10 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
   <div className="battle-actions">
    <label>Zoom <input aria-label="Map zoom" type="range" min="25" max="200" step="5" value={zoom} onChange={e=>setZoom(Number(e.target.value))}/><b>{zoom}%</b></label>
    <button type="button" onClick={()=>setZoom(100)}>100%</button>
-   <span className="battle-note">Scroll to pan · 1 square = 5 ft</span>
+   <span className="battle-note">Scroll to pan · 1 square = 5 ft · {isDm?'DM moves tokens':state.playerMovementEnabled?'Move your assigned token':'DM controls movement'}</span>
    {isDm&&<label className="battle-upload">{loading?'Preparing…':'Upload map'}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={loading} onChange={e=>void upload(e)}/></label>}
   </div>
-  {isDm&&<div className="battle-settings">
+  {isDm&&<div className="battle-settings"><label><input type="checkbox" checked={allowStack} onChange={e=>setAllowStack(e.target.checked)}/> Allow stacking (DM override)</label>
    <label>Cell px <input type="number" min="16" max="200" value={map.cellSize} onChange={e=>sendMap({cellSize:Number(e.target.value)})}/></label>
    <label>Grid X <input type="number" value={map.offsetX} onChange={e=>sendMap({offsetX:Number(e.target.value)})}/></label>
    <label>Grid Y <input type="number" value={map.offsetY} onChange={e=>sendMap({offsetY:Number(e.target.value)})}/></label>
@@ -191,15 +193,15 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
      {map.showGrid&&<div className="battle-grid" style={{backgroundSize:`${map.cellSize}px ${map.cellSize}px`,backgroundPosition:`${map.offsetX}px ${map.offsetY}px`}}/>}
      {isDm&&showPrepared&&staged.filter(t=>t.prepared).map(t=><div key={'ghost-'+t.id} className="ambush-ghost"
        title={'Hidden: '+t.name} style={{left:map.offsetX+t.x*map.cellSize,top:map.offsetY+t.y*map.cellSize,
-       width:Math.max(24,map.cellSize-2),height:Math.max(24,map.cellSize-2),background:t.color}}
-       onClick={e=>{e.stopPropagation();setSelected(t.id);setEditing({name:t.name,color:t.color,ownerId:t.ownerId??''});}}>
+       width:Math.max(24,map.cellSize*footprint(t.size)-2),height:Math.max(24,map.cellSize*footprint(t.size)-2),background:t.color}}
+       onClick={e=>{e.stopPropagation();setSelected(t.id);setEditing({name:t.name,color:t.color,ownerId:t.ownerId??'',size:t.size??'Medium'});}}>
        {t.name.slice(0,2).toUpperCase()}</div>)}
-     {state.tokens.filter(t=>!t.staged).map(t=><div key={t.id} data-token-id={t.id} className={'battle-token'+(selected===t.id?' battle-selected':'')} title={`${t.name} (${t.x},${t.y})`} style={{left:map.offsetX+(dragPreview?.id===t.id?dragPreview.x:pendingMove?.id===t.id?pendingMove.x:t.x)*map.cellSize,top:map.offsetY+(dragPreview?.id===t.id?dragPreview.y:pendingMove?.id===t.id?pendingMove.y:t.y)*map.cellSize,width:Math.max(24,map.cellSize-2),height:Math.max(24,map.cellSize-2),background:t.color,cursor:isDm||t.ownerId===meId?'grab':'default'}} onPointerDown={e=>down(e,t)} onClick={e=>e.stopPropagation()}>{t.name.slice(0,2).toUpperCase()}</div>)}
+     {state.tokens.filter(t=>!t.staged).map(t=><div key={t.id} data-token-id={t.id} className={'battle-token'+(selected===t.id?' battle-selected':'')} title={`${t.name} (${t.x},${t.y})`} style={{left:map.offsetX+(dragPreview?.id===t.id?dragPreview.x:pendingMove?.id===t.id?pendingMove.x:t.x)*map.cellSize,top:map.offsetY+(dragPreview?.id===t.id?dragPreview.y:pendingMove?.id===t.id?pendingMove.y:t.y)*map.cellSize,width:Math.max(24,map.cellSize*footprint(t.size)-2),height:Math.max(24,map.cellSize*footprint(t.size)-2),background:t.color,cursor:isDm||(state.playerMovementEnabled&&t.ownerId===meId)?'grab':'default'}} onPointerDown={e=>down(e,t)} onClick={e=>e.stopPropagation()}>{t.name.slice(0,2).toUpperCase()}</div>)}
     </div>
    </div>
   </div>
   {selected&&token&&<div className="battle-selection"><strong>{token.name}</strong><span>Position {token.x},{token.y}</span><span>Distance from origin: {Math.round(Math.hypot(token.x,token.y)*5)} ft</span>
-   {isDm&&editing&&<>{token.staged?<button type="button" disabled={!token.prepared} onClick={()=>emit('token:reveal',{tokenIds:[token.id]})}>Reveal selected</button>:<button type="button" onClick={()=>emit('token:stage',{tokenId:token.id})}>Return to tray (hide)</button>}<input aria-label="Edit token name" maxLength={40} value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})}/><input aria-label="Token color" type="color" value={editing.color} onChange={e=>setEditing({...editing,color:e.target.value})}/><select aria-label="Token owner" value={editing.ownerId} onChange={e=>setEditing({...editing,ownerId:e.target.value})}><option value="">DM only</option>{members.filter(m=>!m.isDm).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><button onClick={()=>emit('token:edit',{tokenId:selected,...editing,ownerId:editing.ownerId||null})}>Save token</button><button onClick={()=>{emit('token:delete',{tokenId:selected});setSelected('');}}>Delete token</button></>}
+   {isDm&&editing&&<>{token.staged?<button type="button" disabled={!token.prepared} onClick={()=>emit('token:reveal',{tokenIds:[token.id]})}>Reveal selected</button>:<button type="button" onClick={()=>emit('token:stage',{tokenId:token.id})}>Return to tray (hide)</button>}<input aria-label="Edit token name" maxLength={40} value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})}/><input aria-label="Token color" type="color" value={editing.color} onChange={e=>setEditing({...editing,color:e.target.value})}/><select aria-label="Token size" value={editing.size} onChange={e=>setEditing({...editing,size:e.target.value as CreatureSize})}>{(['Small','Medium','Large','Huge','Gargantuan'] as const).map(size=><option key={size} value={size}>{size} ({footprint(size)}×{footprint(size)})</option>)}</select><select aria-label="Token owner" value={editing.ownerId} onChange={e=>setEditing({...editing,ownerId:e.target.value})}><option value="">DM only</option>{members.filter(m=>!m.isDm).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select><button className={dirty?'primary':''} style={dirty?{boxShadow:'0 0 0 3px rgba(255,190,45,.65)'}:undefined} disabled={!dirty} onClick={()=>emit('token:edit',{tokenId:selected,...editing,ownerId:editing.ownerId||null})}>{dirty?'● Save token (unsaved changes)':'Save token'}</button><button onClick={()=>{emit('token:delete',{tokenId:selected});setSelected('');}}>Delete token</button></>}
   </div>}
  </>;
 }

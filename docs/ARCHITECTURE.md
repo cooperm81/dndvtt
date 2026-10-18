@@ -1,6 +1,6 @@
 # D&D VTT — Architecture
 
-**Implemented baseline:** v0.3.2.3. This document distinguishes shipped functionality from proposed v0.4 changes.
+**Implemented baseline:** v0.4.0. This document distinguishes shipped functionality from proposed v0.4 changes.
 
 ## Components
 
@@ -36,7 +36,7 @@ A shared site password can be configured with `GAME_ACCESS_PASSWORD`. The produc
 
 Optional LiveKit voice/video uses a server-issued token. Media availability depends on LiveKit configuration and service availability.
 
-## v0.4 design (planned, not implemented)
+## v0.4 encounter management (implemented)
 
 - DM-controlled Exploration/Combat mode; initiative prominent in Combat.
 - DM-only token movement by default, with a DM setting to grant assigned players movement.

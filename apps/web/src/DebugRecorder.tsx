@@ -41,7 +41,7 @@ function nodeInfo(target:EventTarget|null){
  return {tag:target.tagName.toLowerCase(),className:typeof target.className==='string'?target.className.slice(0,120):'',tokenId:token?.getAttribute('data-token-id')??null,insideMap:!!target.closest('.battle-canvas'),insideTray:!!target.closest('.ambush-tray')};
 }
 function download(){
- const data={app:'dndvtt',version:'v0.3.2.2',exportedAt:new Date().toISOString(),note:'DM browser diagnostic log. No chat, credentials, or map images included.',events};
+ const data={app:'dndvtt',version:'v0.4.0',exportedAt:new Date().toISOString(),note:'DM browser diagnostic log. No chat, credentials, or map images included.',events};
  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
  const a=document.createElement('a');a.href=url;a.download=`dndvtt-debug-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;a.click();
  setTimeout(()=>URL.revokeObjectURL(url),3000);

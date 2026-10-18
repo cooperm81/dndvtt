@@ -1,6 +1,6 @@
 # D&D VTT — Security Notes
 
-**Status:** Private alpha, v0.3.2.3. Not a security-audited public multi-tenant service.
+**Status:** Private alpha, v0.4.0. Not a security-audited public multi-tenant service.
 
 ## Implemented controls
 
@@ -23,7 +23,7 @@
 - Private alpha access is not sufficient protection for sensitive documents or public untrusted hosting.
 - A room invitation code identifies a room; it must not be treated as a security credential.
 
-## v0.4 security requirements
+## v0.4 movement and visibility safeguards
 
 - Enforce DM-only movement by default on the server; never rely solely on disabling browser controls.
 - If player movement is enabled, enforce token ownership on the server.

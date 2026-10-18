@@ -2,7 +2,7 @@
 
 A private, browser-based virtual tabletop for playing Dungeons & Dragons with a Dungeon Master (DM) and remote players. The app combines shared tactical maps, tokens, initiative, dice, and optional voice/video in one room.
 
-**Current deployed version:** v0.3.2.3 (October 2026). **Next planned version:** v0.4 (encounter management). The root `package.json` and health endpoint still contain the original foundation version string (`0.1.0`); those strings are not the current feature/release version.
+**Current version:** v0.4.0 (October 2026). Private alpha. The previous stable release was v0.3.2.3.
 
 ## Try it
 
@@ -10,7 +10,7 @@ Production: https://dndvtt-production.up.railway.app
 
 This is a private alpha, not a public hosted game service. The production site requires the group's access password. The DM creates a room and shares its invite link or room code with players. Room and token state are held in server memory and are lost if the server restarts.
 
-## Current features — v0.3.2.3
+## v0.4.0 — Encounter management (released)
 
 - **Rooms and roles:** Create or join a room; DM access is controlled by a room-specific secret. Share a room invite link with players.
 - **Private access:** Optional shared access-password gate (required by the Railway deployment configuration).
@@ -32,7 +32,7 @@ This is a private alpha, not a public hosted game service. The production site r
 - **No complete character-sheet, fog-of-war, or campaign-management system yet.**
 - **Private alpha security:** A shared site password and DM room secret are not a replacement for full user accounts, durable player identities, and a production security review.
 
-## Planned for v0.4 — not yet implemented
+## v0.4.0 — Encounter management (released)
 
 **Theme: Encounter Management.** The following decisions have been agreed during playtesting:
 
@@ -85,4 +85,14 @@ This project is in active private-alpha development. Do not assume it is suitabl
 
 ## Development workflow
 
-Feature patches are tested locally first, including multiplayer checks where relevant. Only tested changes are committed to GitHub and deployed to Railway. The current stable baseline is **v0.3.2.3**.
+Feature patches are tested locally first, including multiplayer checks where relevant. Only tested changes are committed to GitHub and deployed to Railway. The current stable baseline is **v0.4.0**.
+
+
+## v0.4.0 release highlights
+
+- DM-controlled Exploration and Combat modes; initiative is prominent during Combat.
+- DM-only movement by default, with an option to permit assigned players to move their tokens.
+- Occupied-space collision checks and a deliberate DM stacking override.
+- Small, Medium, Large, Huge, and Gargantuan token footprints.
+- Unsaved-change highlighting in the DM token editor.
+- Hidden enemies remain concealed until the DM explicitly reveals them.

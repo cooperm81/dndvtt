@@ -1,6 +1,6 @@
 # D&D VTT — Roadmap
 
-**Stable production baseline:** v0.3.2.3 (October 2026). This roadmap describes shipped behavior separately from planned work.
+**Stable production baseline:** v0.4.0 (October 2026). This roadmap describes shipped behavior separately from planned work.
 
 ## Shipped
 
@@ -11,17 +11,17 @@
 - [x] **v0.3.2:** DM staging tray, hidden token placement, explicit reveal controls, and server filtering of hidden tokens.
 - [x] **v0.3.2.3:** More reliable drag completion, DM Debug Recorder, and shared staging/prepared token schema.
 
-## v0.4 — Encounter Management (agreed scope)
+## v0.4.0 — Encounter Management (released)
 
-- [ ] DM-controlled Exploration and Combat modes.
-- [ ] Initiative panel unobtrusive in Exploration, prominent in Combat.
-- [ ] DM-only token movement by default.
-- [ ] DM option to allow players to move only assigned tokens; enforced server-side.
-- [ ] Reject movement into occupied grid squares; do not auto-relocate.
-- [ ] Deliberate DM override for exceptional token stacking.
-- [ ] No hidden-position disclosure from collision feedback.
-- [ ] Hidden enemy reveal remains a separate DM action, never triggered by switching modes.
-- [ ] Keep README and supporting documentation accurate as features ship.
+- [x] DM-controlled Exploration and Combat modes.
+- [x] Initiative panel unobtrusive in Exploration, prominent in Combat.
+- [x] DM-only token movement by default.
+- [x] DM option to allow players to move only assigned tokens; enforced server-side.
+- [x] Reject movement into occupied grid squares; do not auto-relocate.
+- [x] Deliberate DM override for exceptional token stacking.
+- [x] No hidden-position disclosure from collision feedback.
+- [x] Hidden enemy reveal remains a separate DM action, never triggered by switching modes.
+- [x] Keep README and supporting documentation accurate as features ship.
 
 ## Beyond v0.4 — candidates, not commitments
 

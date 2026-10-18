@@ -9,7 +9,7 @@ import cors from '@fastify/cors';
 import { Server } from 'socket.io';
 import { randomUUID, randomInt } from 'node:crypto';
 import { z } from 'zod';
-import { moveSchema, rollSchema, initiativeSchema, type GameState, type Token } from '@tabletop/shared';
+import { moveSchema, rollSchema, initiativeSchema, type GameState, type Token, creatureSizeSchema, tokenFootprint } from '@tabletop/shared';
 
 const app=Fastify({logger:true});
 const origin=process.env.CLIENT_ORIGIN || 'http://localhost:5173';
@@ -68,10 +68,10 @@ function publicRoom(room:Room,viewer:Member){
 function send(room:Room){
  for(const m of room.members.values())io.to(m.id).emit('room:state',publicRoom(room,m));
 }
-app.get('/api/health',async()=>({ok:true,version:'0.1.0'}));
+app.get('/api/health',async()=>({ok:true,version:'0.4.0'}));
 app.post('/api/rooms',async()=>{
  const id=shortId(),secret=randomUUID();
- const state:GameState={roomId:id,tokens:[],initiative:[],turnIndex:0,round:1,revision:0};
+ const state:GameState={roomId:id,tokens:[],initiative:[],turnIndex:0,round:1,revision:0,encounterMode:'exploration',playerMovementEnabled:false};
  rooms.set(id,{state,dmSecret:secret,members:new Map()});
  return {roomId:id,dmSecret:secret};
 });
@@ -80,7 +80,7 @@ const mapSchema=z.object({
  width:z.number().int().min(200).max(4000),height:z.number().int().min(200).max(4000),
  cellSize:z.number().int().min(16).max(200),offsetX:z.number().int().min(-2000).max(2000),offsetY:z.number().int().min(-2000).max(2000),showGrid:z.boolean()
 });
-const tokenEditSchema=z.object({tokenId:z.string().uuid(),name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable()});
+const tokenEditSchema=z.object({tokenId:z.string().uuid(),name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable(),size:creatureSizeSchema});
 const joinSchema=z.object({roomId:z.string().min(1),name:z.string().trim().min(1).max(40),dmSecret:z.string().optional()});
 io.on('connection',socket=>{
  let roomId:string|undefined;
@@ -98,6 +98,18 @@ io.on('connection',socket=>{
   reply({ok:true,member});send(room);
  });
  function current(){if(!roomId||!member)return null;const room=rooms.get(roomId);return room?.members.has(socket.id)?room:null;}
+ socket.on('encounter:mode',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=z.enum(['exploration','combat']).safeParse(raw?.mode);
+  if(!parsed.success)return reply?.({error:'Invalid encounter mode'});
+  room.state.encounterMode=parsed.data;room.state.revision++;send(room);reply?.({ok:true});
+ });
+ socket.on('settings:movement',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=z.boolean().safeParse(raw?.enabled);
+  if(!parsed.success)return reply?.({error:'Invalid movement setting'});
+  room.state.playerMovementEnabled=parsed.data;room.state.revision++;send(room);reply?.({ok:true});
+ });
  socket.on('map:update',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
   const parsed=mapSchema.safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid map or image too large (max ~2 MB)'});
@@ -109,7 +121,9 @@ io.on('connection',socket=>{
   const token=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
   if(!token)return reply?.({error:'Token not found'});
   if(parsed.data.ownerId!==null&&!room.members.has(parsed.data.ownerId))return reply?.({error:'Unknown owner'});
-  Object.assign(token,{name:parsed.data.name,color:parsed.data.color,ownerId:parsed.data.ownerId});room.state.revision++;send(room);reply?.({ok:true});
+  const newFootprint=tokenFootprint(parsed.data.size);
+  if((!token.staged||token.prepared)&&room.state.tokens.some(other=>other.id!==token.id&&(!other.staged||other.prepared)&&parsed.data.size!==token.size&&token.x<other.x+tokenFootprint(other.size)&&token.x+newFootprint>other.x&&token.y<other.y+tokenFootprint(other.size)&&token.y+newFootprint>other.y))return reply?.({error:'Size would overlap another token'});
+  Object.assign(token,{name:parsed.data.name,color:parsed.data.color,ownerId:parsed.data.ownerId,size:parsed.data.size});room.state.revision++;send(room);reply?.({ok:true});
  });
  socket.on('token:delete',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
@@ -118,10 +132,10 @@ io.on('connection',socket=>{
  });
  socket.on('token:add',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
-  const parsed=z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable()}).safeParse(raw);
+  const parsed=z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable(),size:creatureSizeSchema.optional()}).safeParse(raw);
   if(!parsed.success)return reply?.({error:'Invalid token'});
   if(parsed.data.ownerId!==null&&!room.members.has(parsed.data.ownerId))return reply?.({error:'Unknown player'});
-  const token:Token={id:randomUUID(),name:parsed.data.name,x:2,y:2,ownerId:parsed.data.ownerId,color:parsed.data.color,staged:true,prepared:false};
+  const token:Token={id:randomUUID(),name:parsed.data.name,x:2,y:2,ownerId:parsed.data.ownerId,color:parsed.data.color,size:parsed.data.size??'Medium',staged:true,prepared:false};
   room.state.tokens.push(token);room.state.revision++;send(room);reply?.({ok:true});
  });
  socket.on('token:move',(raw,reply)=>{
@@ -130,7 +144,14 @@ io.on('connection',socket=>{
   const parsed=moveSchema.safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid move'});
   const token=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
   if(!token)return reply?.({error:'Token not found'});
-  if(!member.isDm&&(token.staged||token.ownerId!==member.id))return reply?.({error:'Not your token'});
+  if(!member.isDm&&(!room.state.playerMovementEnabled||token.staged||token.ownerId!==member.id))return reply?.({error:'DM controls token movement'});
+  // Check occupancy on the authoritative state. Never disclose hidden occupants to players.
+  const footprint=tokenFootprint(token.size);
+  const occupied=room.state.tokens.some(t=>t.id!==token.id && (t.staged?!!t.prepared:true) && parsed.data.x<t.x+tokenFootprint(t.size)&&parsed.data.x+footprint>t.x&&parsed.data.y<t.y+tokenFootprint(t.size)&&parsed.data.y+footprint>t.y);
+  if(occupied){
+   if(!member.isDm)return reply?.({error:'Move unavailable'});
+   if(raw?.allowStack!==true)return reply?.({error:'Square occupied. Use DM override to stack.'});
+  }
   const debugOldPosition={x:token.x,y:token.y};
   token.x=parsed.data.x;token.y=parsed.data.y;
   traceServer({at:new Date().toISOString(),by:member.id,tokenId:token.id,name:token.name,from:debugOldPosition,to:{x:token.x,y:token.y},revision:room.state.revision+1});
@@ -150,6 +171,10 @@ io.on('connection',socket=>{
   const parsed=z.object({tokenIds:z.array(z.string().uuid()).min(1).max(200)}).safeParse(raw);
   if(!parsed.success)return reply?.({error:'Invalid reveal request'});
   const ids=new Set(parsed.data.tokenIds);
+  for(const t of room.state.tokens)if(ids.has(t.id)&&t.staged&&t.prepared){
+   const collision=room.state.tokens.some(other=>other.id!==t.id&&(other.staged?!!other.prepared:true)&&t.x<other.x+tokenFootprint(other.size)&&t.x+tokenFootprint(t.size)>other.x&&t.y<other.y+tokenFootprint(other.size)&&t.y+tokenFootprint(t.size)>other.y);
+   if(collision)return reply?.({error:'Cannot reveal onto an occupied square; reposition first'});
+  }
   for(const t of room.state.tokens)if(ids.has(t.id)&&t.staged&&t.prepared)t.staged=false;
   room.state.revision++;send(room);reply?.({ok:true});
  });
