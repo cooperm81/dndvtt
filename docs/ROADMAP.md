@@ -1,36 +1,32 @@
 # D&D VTT — Roadmap
 
-**Stable production baseline:** v0.4.0 (October 2026). This roadmap describes shipped behavior separately from planned work.
+**Release candidate:** v0.5.0 (October 2026). **Production baseline:** v0.4.0 until the v0.5 deployment is verified.
 
-## Shipped
+## Delivered in v0.1–v0.4.0
 
-- [x] **v0.1:** Shared rooms, DM/player roles, tokens, initiative, dice, and real-time synchronization.
-- [x] **v0.2:** Optional LiveKit voice/video and media layout.
-- [x] **v0.2.1–v0.2.3:** Private site access, invitations, Railway hosting, and reconnection/synchronization improvements.
-- [x] **v0.3.1:** DM map uploads, adjustable grid, zoom/pan, token editing, snapping, and movement permissions based on ownership.
-- [x] **v0.3.2:** DM staging tray, hidden token placement, explicit reveal controls, and server filtering of hidden tokens.
-- [x] **v0.3.2.3:** More reliable drag completion, DM Debug Recorder, and shared staging/prepared token schema.
+- Shared DM/player rooms, tokens, dice, initiative, synchronization, and optional LiveKit media.
+- Private site access, room invitations, Railway deployment, and reconnection improvements.
+- Battle maps, adjustable grids, token movement, staging tray, hidden enemies, and explicit reveals.
+- Exploration/Combat modes, DM-controlled movement permissions, occupied-square collision checks, and multi-square creature sizes.
 
-## v0.4.0 — Encounter Management (released)
+## v0.5.0 — Campaign management and player presence (release candidate)
 
-- [x] DM-controlled Exploration and Combat modes.
-- [x] Initiative panel unobtrusive in Exploration, prominent in Combat.
-- [x] DM-only token movement by default.
-- [x] DM option to allow players to move only assigned tokens; enforced server-side.
-- [x] Reject movement into occupied grid squares; do not auto-relocate.
-- [x] Deliberate DM override for exceptional token stacking.
-- [x] No hidden-position disclosure from collision feedback.
-- [x] Hidden enemy reveal remains a separate DM action, never triggered by switching modes.
-- [x] Keep README and supporting documentation accurate as features ship.
+- [x] Connected-player roster and join/leave presence notices independent of video.
+- [x] Multi-scene campaigns with scene names, maps, tokens, and encounter state.
+- [x] Portable `.dndcamp` campaign export/import with format validation.
+- [x] Save/Save As, Cmd+S, optional direct-file autosave, unsaved status, and browser-local recovery.
+- [x] Portable `.dndchar` character export/import and character assignment.
+- [x] Browser-local persistent player IDs for reconnect and token ownership.
+- [x] Case-insensitive player-name matching and duplicate-name protection.
+- [x] Local multiplayer acceptance tests reported passing.
+- [ ] Final production deployment and post-deploy smoke test.
 
-## Beyond v0.4 — candidates, not commitments
+## Beyond v0.5 — candidates, not commitments
 
-- [ ] Player requests movement; DM approves/rejects.
-- [ ] Movement-distance limits, obstacles, and terrain rules.
-- [ ] Durable room/campaign persistence and reliable player identity recovery.
-- [ ] Character sheets, fog of war, campaign library, and richer encounter tools.
-- [ ] Broader browser/device testing, accessibility, and production security hardening.
+- Full character sheets, stronger authenticated player identities, and database-backed storage.
+- Movement requests and approval, movement distances, obstacles, terrain, and fog of war.
+- Broader browser/device testing, accessibility, automated integration tests, and security hardening.
 
-## Release process
+## Release discipline
 
-Test changes locally, including multiple connected participants when relevant. Review the entire Git working tree before committing. Push tested changes to GitHub, confirm Railway deployment, and smoke-test production.
+Audit all modified and untracked files; run typecheck and build; validate campaign and character round trips and multi-browser reconnection; commit and push only after local approval; verify Railway health and multiplayer behavior after deployment.

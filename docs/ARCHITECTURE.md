@@ -1,51 +1,30 @@
 # D&D VTT — Architecture
 
-**Implemented baseline:** v0.4.0. This document distinguishes shipped functionality from proposed v0.4 changes.
+**Version:** v0.5.0 release candidate. Production remains v0.4.0 until deployment verification.
 
 ## Components
 
-- `apps/web`: React + TypeScript + Vite frontend, Socket.IO client, tactical board, and optional LiveKit media UI.
-- `apps/server`: Fastify HTTP API, Socket.IO server, LiveKit token endpoint, and static hosting of the compiled frontend.
-- `packages/shared`: TypeScript game-state types and Zod schemas.
-- Railway hosts the production service; GitHub `main` is the deployment source when Auto Deploy is enabled.
+- `apps/web`: React/TypeScript/Vite client, tactical board, local campaign file operations, IndexedDB recovery, and optional LiveKit UI.
+- `apps/server`: Fastify HTTP API, authoritative Socket.IO room/game logic, campaign validation, and static production hosting.
+- `packages/shared`: Shared TypeScript/Zod game-state types.
+- Railway hosts the service; GitHub `main` supplies the deployment source when Auto Deploy is enabled.
 
-## Current data flow
+## State and persistence
 
-1. A DM creates a room with `POST /api/rooms` and receives a room ID and DM secret.
-2. Participants join with `room:join`; the server tracks their room membership and DM role.
-3. The server validates game mutations and broadcasts room snapshots using `room:state`.
-4. The server filters staged/hidden tokens from non-DM snapshots. A hidden token is **not** simply concealed in the player's browser.
-5. Dice are generated server-side and shared through `dice:result`.
+The server is authoritative during a live session. Rooms and connected membership reside in memory, so a server restart loses the active session. The DM can export/import a versioned `.dndcamp` campaign containing scenes, maps, tokens, characters, and active scene state. The file is the portable durable copy; there is no server database. Supported browsers may write back to an authorized file, and the browser maintains an IndexedDB recovery snapshot. Browser recovery is not a substitute for a separate saved file or backup.
 
-Game state and membership are currently held **in server memory**, not a database. Restarting the server loses rooms, maps, tokens, and initiative state. Player membership/ownership uses live socket IDs, so reconnection identity remains limited.
+The DM can create/import/export `.dndchar` character records. Player IDs are stored in the browser and reused across connections; they are distinct from Socket.IO connection IDs and visible display names. Character assignments and token ownership refer to these player IDs. IDs are not authenticated credentials and can be lost when browser storage is cleared or a different browser is used.
 
-## Current game operations
+## Operations and access control
 
-- Room: `room:join`, `room:state`
-- Map: `map:update` (DM)
-- Tokens: `token:add`, `token:edit`, `token:delete`, `token:move`, `token:stage`, `token:reveal`
-- Initiative: `initiative:add`, `initiative:next`
-- Dice: `dice:roll`, `dice:result`
-- Diagnostics: DM-side Debug Recorder and `debug:server` token-movement events
+- DM creates rooms with `POST /api/rooms` and receives a room secret.
+- Participants join with `room:join`; room membership and presence are broadcast independently of LiveKit.
+- Game state uses `room:state`; server validates token, initiative, map, and dice operations.
+- DM campaign operations include `campaign:summary`, `campaign:export`, `campaign:import`, and scene create/rename/switch.
+- Character operations include `character:save`, `character:mine`, and `character:export` with DM/owner access checks.
+- Hidden/staged tokens are removed from non-DM snapshots on the server, not hidden only by client styling.
+- DM-only movement is the default; enabling player movement permits assigned tokens, with server-side checks.
 
-The browser has grid snapping, zoom, scroll/pan, map uploads, staging-tray controls, and a document-level pointer-release handler introduced in v0.3.2.3.
+## Access and media
 
-## Authentication and media
-
-A shared site password can be configured with `GAME_ACCESS_PASSWORD`. The production Railway environment requires it. Successful login sets a signed, HttpOnly access cookie. A room-specific DM secret separately determines the DM role. Neither mechanism is a substitute for durable individual accounts.
-
-Optional LiveKit voice/video uses a server-issued token. Media availability depends on LiveKit configuration and service availability.
-
-## v0.4 encounter management (implemented)
-
-- DM-controlled Exploration/Combat mode; initiative prominent in Combat.
-- DM-only token movement by default, with a DM setting to grant assigned players movement.
-- Server-side rejection of moves into occupied grid squares; deliberate DM override for exceptional stacking.
-- Collision behavior must not disclose hidden token locations to players.
-- Switching encounter modes must **never** reveal staged enemies; reveal remains an explicit DM operation.
-
-The server should remain authoritative for movement permissions and collision decisions. Clients should display rejected-move feedback without exposing private state.
-
-## Future architecture
-
-Durable storage, persistent player identities, better session recovery, production security hardening, and richer encounter tooling remain future work.
+The configured `GAME_ACCESS_PASSWORD` gates the private site using a signed HttpOnly cookie. A separate room-specific secret controls DM actions. LiveKit media requires its own service configuration. Neither the site password nor the browser-local player ID provides individual authenticated accounts.
