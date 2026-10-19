@@ -1,4 +1,5 @@
 import MediaRoom from './MediaRoom';
+import CharacterSheet, {type SheetCharacter} from './CharacterSheet';
 import BattleBoard from './BattleBoard';
 import DebugRecorder, {trace,traceRoomState,traceOutgoing} from './DebugRecorder'; // DEBUG_RECORDER_0322
 import {useEffect,useRef,useState, type ChangeEvent} from 'react';
@@ -21,6 +22,7 @@ export default function App(){
  const [,setSavedRevision]=useState<number|null>(null);
  const [saving,setSaving]=useState(false);
  const characterInput=useRef<HTMLInputElement>(null);
+ const [editingCharacter,setEditingCharacter]=useState<SheetCharacter|null>(null);
  const [myCharacters,setMyCharacters]=useState<{id:string;name:string}[]>([]);
  const playerId=useRef<string>(getPlayerId());
  const fileInput=useRef<HTMLInputElement>(null);
@@ -46,6 +48,10 @@ export default function App(){
  const [access,setAccess]=useState<'checking'|'required'|'granted'>('checking');
  const [accessPassword,setAccessPassword]=useState(''); const [accessError,setAccessError]=useState('');
  const [error,setError]=useState('');const [rolls,setRolls]=useState<RollResult[]>([]);
+ // V06_PHASE22B_DICE: local preference, never affects room/game state.
+ const [diceOpen,setDiceOpen]=useState<boolean>(()=>{try{return localStorage.getItem('dndvtt-dice-drawer-open')!=='false';}catch{return true;}});
+ useEffect(()=>{try{localStorage.setItem('dndvtt-dice-drawer-open',String(diceOpen));}catch{/* storage optional */}},[diceOpen]);
+
  const [tokenName,setTokenName]=useState('Hero');const [tokenSize,setTokenSize]=useState<CreatureSize>('Medium');const [initiativeName,setInitiativeName]=useState('Goblin');const [initiativeScore,setInitiativeScore]=useState(12);
  const socket=useRef<Socket|null>(null);const joined=useRef<{roomId:string;name:string;dmSecret:string;playerId:string}|null>(null);
  useEffect(()=>{fetch(`${API}/api/auth/status`).then(r=>r.json()).then(data=>setAccess(data.authenticated?'granted':'required')).catch(()=>setAccess('required'));},[]);
@@ -126,6 +132,9 @@ export default function App(){
   const blob=new Blob([JSON.stringify(r.character,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);
   const link=document.createElement('a');link.href=url;link.download=(r.character.name.replace(/[^a-z0-9 _-]/gi,'').trim()||'Character')+'.dndchar';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
  }catch(e){setError(e instanceof Error?e.message:'Export failed');}}
+ async function openSheet(id:string){try{const r=await characterAck('character:get',{id});if(!r.ok||!r.character)throw Error(r.error||'Character unavailable');setEditingCharacter(r.character);}catch(e){setError(e instanceof Error?e.message:'Cannot open sheet');}}
+ async function rollSheet(label:string,modifier:number,advantage:'normal'|'advantage'|'disadvantage'){const r=await new Promise<{ok?:boolean;error?:string}>(resolve=>socket.current?.emit('dice:character',{label,modifier,advantage},resolve));if(!r?.ok)throw Error(r?.error||'Roll failed');}
+ async function saveSheet(c:SheetCharacter){const r=await characterAck('character:save',c);if(!r.ok)throw Error(r.error||'Save failed');}
  async function assignCharacter(id:string){const c=campaign?.characters.find(x=>x.id===id);if(!c)return;
   const selected=room?.members.filter(m=>!m.isDm)||[];
   const name=window.prompt('Assign character to connected player (name is case-insensitive; blank to unassign):',selected.find(m=>m.playerId===c.playerId)?.name||'');if(name===null)return;
@@ -176,28 +185,50 @@ export default function App(){
  // PRIVATE_GAME_ACCESS_V1: authentication gate, then separate DM/player entry forms.
  if(access==='checking')return <main className="landing"><section className="join-card"><div className="brand">⚔ TABLETOP</div><p>Checking access…</p></section></main>;
  if(access==='required')return <main className="landing"><section className="join-card"><div className="brand">⚔ TABLETOP</div><h1>Private game</h1><p>Enter your group's access password to continue.</p><form onSubmit={e=>{e.preventDefault();void loginAccess();}}><label>Access password<input type="password" autoFocus value={accessPassword} onChange={e=>setAccessPassword(e.target.value)} autoComplete="current-password" required/></label><button className="primary" type="submit">Enter tabletop <ArrowRight size={17}/></button></form>{accessError&&<p className="error" role="alert">{accessError}</p>}</section></main>;
- if(!room||!me)return <main className="landing"><section className="entry-shell"><div className="brand">⚔ TABLETOP <small>v0.5.0 PRIVATE ALPHA</small></div><h1>Gather your party.</h1><p className="entry-intro">Create a new adventure or join a game already in progress.</p><div className="entry-grid"><section className="entry-panel"><div className="entry-icon"><Plus size={24}/></div><h2>Create a Room</h2><p>Start a new adventure as Dungeon Master.</p><form onSubmit={e=>{e.preventDefault();void create();}}><label>Dungeon Master name<input value={dmName} onChange={e=>setDmName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><p className="entry-hint">We'll generate a room code you can share with your players.</p><button type="submit" className="primary">Create Room <ArrowRight size={17}/></button></form></section><section className="entry-panel"><div className="entry-icon"><Users size={24}/></div><h2>Join a Room</h2><p>Enter the room code your Dungeon Master shared.</p><form onSubmit={e=>{e.preventDefault();join(roomInput.trim(),'');}}><label>Player name<input value={name} onChange={e=>setName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><label>Room code<input value={roomInput} onChange={e=>setRoomInput(e.target.value)} placeholder="e.g. a1b2c3d4" required/></label><button type="submit">Join Room <ArrowRight size={17}/></button></form></section></div>{error&&<p className="error" role="alert">{error}</p>}</section></main>;
+ if(!room||!me)return <main className="landing"><section className="entry-shell"><div className="brand">⚔ TABLETOP <small>v0.6.0 PRIVATE ALPHA</small></div><h1>Gather your party.</h1><p className="entry-intro">Create a new adventure or join a game already in progress.</p><div className="entry-grid"><section className="entry-panel"><div className="entry-icon"><Plus size={24}/></div><h2>Create a Room</h2><p>Start a new adventure as Dungeon Master.</p><form onSubmit={e=>{e.preventDefault();void create();}}><label>Dungeon Master name<input value={dmName} onChange={e=>setDmName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><p className="entry-hint">We'll generate a room code you can share with your players.</p><button type="submit" className="primary">Create Room <ArrowRight size={17}/></button></form></section><section className="entry-panel"><div className="entry-icon"><Users size={24}/></div><h2>Join a Room</h2><p>Enter the room code your Dungeon Master shared.</p><form onSubmit={e=>{e.preventDefault();join(roomInput.trim(),'');}}><label>Player name<input value={name} onChange={e=>setName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><label>Room code<input value={roomInput} onChange={e=>setRoomInput(e.target.value)} placeholder="e.g. a1b2c3d4" required/></label><button type="submit">Join Room <ArrowRight size={17}/></button></form></section></div>{error&&<p className="error" role="alert">{error}</p>}</section></main>;
 
  const state=room.state;const inCombat=state.encounterMode==='combat';
- return <div className="app"><header><strong>⚔ TABLETOP</strong><span>Room {state.roomId}</span><button onClick={()=>navigator.clipboard.writeText(`${location.origin}/?room=${state.roomId}`)}><Copy size={15}/> Copy invite link</button><span className="tag">{me.isDm?'DUNGEON MASTER':'PLAYER'}</span></header>
- {me.isDm&&<section aria-label="Campaign file controls" style={{padding:'12px 16px',borderBottom:'1px solid #555',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-  <input ref={fileInput} type="file" accept=".dndcamp,application/json" style={{display:'none'}} onChange={openCampaign}/>
-  <strong>Campaign: {campaign?.name||'Loading…'}</strong>
-  <button onClick={renameCampaign}>Rename campaign</button><button onClick={()=>void openLocalFile()}>Open…</button>
-  <button onClick={()=>void saveCampaign()} disabled={saving||!campaign}>{saving?'Saving…':'Save (⌘/Ctrl+S)'}</button>
-  <button onClick={()=>void saveAs()} disabled={saving||!campaign}>Save As…</button>
-  <span role="status" style={{fontSize:12,opacity:.9}}>{dirty?'● Unsaved changes':saveLabel||'Saved'}{directFile?' · Local file':''}</span>
-  <label title={directFile?'Automatically save to the authorized local file':'Open or Save As to a local file in a supported browser first'}><input type="checkbox" checked={autoSave} disabled={!directFile} onChange={e=>setAutoSave(e.target.checked)}/> Autosave</label>
-  {recoveryAvailable&&<button onClick={()=>void restoreRecovery()}>Restore recovery…</button>}
-  <label>Scene: <select value={campaign?.activeSceneId||''} onChange={e=>void switchScene(e.target.value)}>{campaign?.scenes.map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}</select></label>
-  <button onClick={()=>void renameScene()}>Rename scene</button><button onClick={()=>void addScene()}>+ Scene</button>
- </section>}
- {me.isDm&&<section aria-label="Character files" style={{padding:'10px 16px',borderBottom:'1px solid #555',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-  <strong>Characters</strong><input ref={characterInput} type="file" accept=".dndchar,application/json" style={{display:'none'}} onChange={e=>void importCharacter(e)}/>
-  <button onClick={()=>void addCharacter()}>+ Character</button><button onClick={()=>characterInput.current?.click()}>Import .dndchar…</button>
-  {campaign?.characters.map(c=><span key={c.id} style={{border:'1px solid #777',borderRadius:8,padding:5}}>{c.name} · {c.characterClass} {c.level} <button onClick={()=>void assignCharacter(c.id)}>Assign</button> <button onClick={()=>void exportCharacter(c.id)}>Export</button></span>)}
- </section>}
- {!me.isDm&&myCharacters.length>0&&<section aria-label="Your character files" style={{padding:'8px 16px',display:'flex',gap:8}}><strong>Your characters:</strong>{myCharacters.map(c=><button key={c.id} onClick={()=>void exportCharacter(c.id)}>Export {c.name}.dndchar</button>)}</section>}
+ return <div className="app"><header>{/* V06_PHASE22B_UI_FIX */}<strong>⚔ TABLETOP</strong><span className="vtt-app-version" aria-label="Application version">v0.6.0</span><span>Room {state.roomId}</span><button onClick={()=>navigator.clipboard.writeText(`${location.origin}/?room=${state.roomId}`)}><Copy size={15}/> Copy invite link</button><span className="tag">{me.isDm?'DUNGEON MASTER':'PLAYER'}</span></header>
+ {/* V06_PHASE22A_MENU: native disclosure menus; all permissions checked in actions and server. */}
+ <nav className="vtt-menu-bar" aria-label="Application menus" /* V06_PHASE22A_MENU_FIX */
+  onClickCapture={e=>{
+   const target=e.target;
+   if(!(target instanceof HTMLElement))return;
+   const menu=target.closest('details.vtt-menu');
+   if(!menu)return;
+   if(target.closest('summary')){
+    document.querySelectorAll('details.vtt-menu[open]').forEach(other=>{if(other!==menu)(other as HTMLDetailsElement).open=false;});
+   }else if(target.closest('button:not(:disabled)')){
+    (menu as HTMLDetailsElement).open=false;
+   }
+  }}
+  onKeyDown={e=>{if(e.key==='Escape'){document.querySelectorAll('details.vtt-menu[open]').forEach(el=>(el as HTMLDetailsElement).open=false);}}}>
+
+  <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Campaign</summary><div className="vtt-menu-items">
+   {me.isDm?<>
+    <button onClick={()=>{if(window.confirm('Leave this room and create a new campaign? Save your current campaign first.')){sessionStorage.removeItem('dmSecret');location.href=location.pathname;}}}>New…</button>
+    <button onClick={()=>void openLocalFile()}>Open…</button>
+    <button onClick={renameCampaign}>Rename…</button>
+    <button disabled={saving||!campaign} onClick={()=>void saveCampaign()}>Save (⌘/Ctrl+S)</button>
+    <button disabled={saving||!campaign} onClick={()=>void saveAs()}>Save As…</button>
+    <label className="vtt-menu-check" title="Requires an authorized local campaign file"><input type="checkbox" checked={autoSave} disabled={!directFile} onChange={e=>setAutoSave(e.target.checked)}/> Autosave</label>
+    {recoveryAvailable&&<button onClick={()=>void restoreRecovery()}>Restore recovery…</button>}
+   </>:<span className="vtt-menu-note">Campaign files are managed by the DM.</span>}
+  </div></details>
+  <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Character</summary><div className="vtt-menu-items">
+   {me.isDm&&<><button onClick={()=>void addCharacter()}>New character…</button><button onClick={()=>characterInput.current?.click()}>Import .dndchar…</button></>}
+   {(me.isDm?(campaign?.characters||[]):myCharacters).length===0&&<span className="vtt-menu-note">No characters available</span>}
+   {(me.isDm?(campaign?.characters||[]):myCharacters).map(c=><div className="vtt-menu-character" key={c.id}><strong>{c.name}</strong><button onClick={()=>void openSheet(c.id)}>Open sheet</button>{me.isDm&&<button onClick={()=>void assignCharacter(c.id)}>Assign…</button>}<button onClick={()=>void exportCharacter(c.id)}>Export .dndchar</button></div>)}
+  </div></details>
+  <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Scene</summary><div className="vtt-menu-items">
+   {me.isDm?<><label className="vtt-menu-note">Current scene<select aria-label="Select scene" value={campaign?.activeSceneId||''} onChange={e=>void switchScene(e.target.value)}>{campaign?.scenes.map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}</select></label><button onClick={()=>void addScene()}>New scene…</button><button onClick={()=>void renameScene()}>Rename scene…</button></>:<span className="vtt-menu-note">The DM controls scenes.</span>}
+  </div></details>
+  <span className="vtt-menu-context" title={campaign?.name||'Campaign'}>{campaign?.name||'Campaign'} · {campaign?.scenes.find(sc=>sc.id===campaign.activeSceneId)?.name||'Scene'}</span>
+  {me.isDm&&<span className="vtt-menu-save" role="status">{dirty?'● Unsaved changes':saveLabel||'Saved'}{directFile?' · Local file':''}</span>}
+ </nav>
+ <input ref={fileInput} type="file" accept=".dndcamp,application/json" style={{display:'none'}} onChange={openCampaign}/>
+ <input ref={characterInput} type="file" accept=".dndchar,application/json" style={{display:'none'}} onChange={e=>void importCharacter(e)}/>
+ {editingCharacter&&<CharacterSheet character={editingCharacter} onSave={saveSheet} onRoll={rollSheet} onClose={()=>setEditingCharacter(null)}/>}
  <section className="video-row media-section"><MediaRoom roomId={state.roomId} socketId={me.id} api={API}/></section>
  <section aria-label="Game server presence" style={{padding:'10px 16px',borderBottom:'1px solid #555',display:'flex',alignItems:'flex-start',gap:16,flexWrap:'wrap'}}>
   <div style={{display:'flex',alignItems:'center',gap:8}}><span aria-hidden="true" style={{color:connected?'#69d59a':'#f3b366'}}>●</span><strong>{connected?'Connected to game server':'Reconnecting to game server…'}</strong><span style={{opacity:.75}}>· Video optional</span></div>
@@ -210,6 +241,6 @@ export default function App(){
   <label style={{display:'flex',alignItems:'center',gap:6}}><input type="checkbox" checked={!!state.playerMovementEnabled} onChange={e=>emit('settings:movement',{enabled:e.target.checked})}/> Allow players to move assigned tokens</label></>}
   <small>Hidden enemies are revealed separately by the DM.</small>
  </div>
- <div className="workspace"><section className="map-panel"><div className="panel-title"><span><MapIcon size={17}/> Shared tabletop</span><small>{me.isDm?'DM controls movement':state.playerMovementEnabled?'Move your assigned token':'Ask the DM to move your character'} · 1 square = 5 ft</small></div><BattleBoard state={state} members={room.members} isDm={me.isDm} meId={me.playerId} emit={emit} />{me.isDm&&<DebugRecorder state={state}/>}{me.isDm&&<div className="toolbar"><input aria-label="Token name" value={tokenName} onChange={e=>setTokenName(e.target.value)} maxLength={40}/><select aria-label="New token size" value={tokenSize} onChange={e=>setTokenSize(e.target.value as CreatureSize)}>{(['Small','Medium','Large','Huge','Gargantuan'] as const).map(size=><option key={size} value={size}>{size} ({size==='Large'?'2×2':size==='Huge'?'3×3':size==='Gargantuan'?'4×4':'1×1'})</option>)}</select><button onClick={()=>emit('token:add',{name:tokenName,color:'#538fc1',ownerId:null,size:tokenSize})}><Plus size={15}/> Add token</button><select aria-label="Assign token to player" onChange={e=>{const id=e.target.value;if(!id)return;emit('token:add',{name:room.members.find(m=>m.id===id)?.name||'Hero',color:'#65b58e',ownerId:room.members.find(m=>m.id===id)?.playerId??id,size:tokenSize});e.target.value='';}} defaultValue=""><option value="">Add player token…</option>{room.members.filter(m=>!m.isDm).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>}</section>
- <aside>{inCombat&&<><div className="panel-title">Initiative <span>Round {state.round}</span></div><div className="initiative">{state.initiative.length===0&&<p className="muted">No combatants yet.</p>}{state.initiative.map((c,i)=><div key={c.id} className={'combatant '+(i===state.turnIndex?'active':'')}><span>{c.name}</span><b>{c.score}</b></div>)}</div>{me.isDm&&<><div className="formrow"><input aria-label="Combatant" value={initiativeName} onChange={e=>setInitiativeName(e.target.value)}/><input aria-label="Initiative score" type="number" value={initiativeScore} onChange={e=>setInitiativeScore(Number(e.target.value))}/><button onClick={()=>emit('initiative:add',{name:initiativeName,score:initiativeScore})}>Add</button></div><button className="primary" onClick={()=>emit('initiative:next',{})}>Next turn →</button></>}</>}<div className="panel-title dice-title"><Dices size={18}/> Dice</div><div className="dice-buttons">{[4,6,8,10,12,20,100].map(s=><button key={s} onClick={()=>emit('dice:roll',{count:1,sides:s,modifier:0})}>d{s}</button>)}</div><div className="rolls">{rolls.map((r,i)=><div key={i}><b>{r.by}</b> d{r.sides}: {r.dice.join('+')} {r.modifier?`(${r.modifier>0?'+':''}${r.modifier})`:''} = <b>{r.total}</b></div>)}</div></aside></div>{error&&<div className="toast" role="alert" onClick={()=>setError('')}>{error} ✕</div>}<footer>Campaign files are saved locally by the DM · Unsaved room state is lost if the server restarts</footer></div>;
+ <div className={`workspace vtt-dice-workspace ${diceOpen?"vtt-dice-expanded":inCombat?"vtt-dice-combat-collapsed":"vtt-dice-collapsed"}`}><section className="map-panel"><div className="panel-title"><span><MapIcon size={17}/> Shared tabletop</span><small>{me.isDm?'DM controls movement':state.playerMovementEnabled?'Move your assigned token':'Ask the DM to move your character'} · 1 square = 5 ft</small></div><BattleBoard state={state} members={room.members} isDm={me.isDm} meId={me.playerId} emit={emit} />{me.isDm&&<DebugRecorder state={state}/>}{me.isDm&&<div className="toolbar"><input aria-label="Token name" value={tokenName} onChange={e=>setTokenName(e.target.value)} maxLength={40}/><select aria-label="New token size" value={tokenSize} onChange={e=>setTokenSize(e.target.value as CreatureSize)}>{(['Small','Medium','Large','Huge','Gargantuan'] as const).map(size=><option key={size} value={size}>{size} ({size==='Large'?'2×2':size==='Huge'?'3×3':size==='Gargantuan'?'4×4':'1×1'})</option>)}</select><button onClick={()=>emit('token:add',{name:tokenName,color:'#538fc1',ownerId:null,size:tokenSize})}><Plus size={15}/> Add token</button><select aria-label="Assign token to player" onChange={e=>{const id=e.target.value;if(!id)return;emit('token:add',{name:room.members.find(m=>m.id===id)?.name||'Hero',color:'#65b58e',ownerId:room.members.find(m=>m.id===id)?.playerId??id,size:tokenSize});e.target.value='';}} defaultValue=""><option value="">Add player token…</option>{room.members.filter(m=>!m.isDm).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>}</section>
+ <aside className="vtt-dice-sidebar" aria-label="Dice and initiative controls"><div className="vtt-dice-toggle-row"><button type="button" className="vtt-dice-toggle" aria-expanded={diceOpen} aria-controls="vtt-dice-drawer" title={diceOpen?'Collapse dice drawer':'Expand dice drawer'} onClick={()=>setDiceOpen(open=>!open)}><Dices size={18}/><span>{diceOpen?'Hide dice':'Show dice'}</span><span aria-hidden="true">{diceOpen?'›':'‹'}</span></button></div>{inCombat&&<><div className="panel-title">Initiative <span>Round {state.round}</span></div><div className="initiative">{state.initiative.length===0&&<p className="muted">No combatants yet.</p>}{state.initiative.map((c,i)=><div key={c.id} className={'combatant '+(i===state.turnIndex?'active':'')}><span>{c.name}</span><b>{c.score}</b></div>)}</div>{me.isDm&&<><div className="formrow"><input aria-label="Combatant" value={initiativeName} onChange={e=>setInitiativeName(e.target.value)}/><input aria-label="Initiative score" type="number" value={initiativeScore} onChange={e=>setInitiativeScore(Number(e.target.value))}/><button onClick={()=>emit('initiative:add',{name:initiativeName,score:initiativeScore})}>Add</button></div><button className="primary" onClick={()=>emit('initiative:next',{})}>Next turn →</button></>}</>}<div id="vtt-dice-drawer" className="vtt-dice-drawer" hidden={!diceOpen}><div className="panel-title dice-title"><Dices size={18}/> Dice</div><div className="dice-buttons">{[4,6,8,10,12,20,100].map(s=><button key={s} onClick={()=>emit('dice:roll',{count:1,sides:s,modifier:0})}>d{s}</button>)}</div><div className="rolls">{rolls.map((r,i)=><div key={i}><b>{r.by}</b> {r.label?`${r.label} (${r.advantage||'normal'})`: `d${r.sides}`}: {r.dice.join(r.advantage&&r.advantage!=='normal'?' or ':'+')} {r.modifier?`(${r.modifier>0?'+':''}${r.modifier})`:''} = <b>{r.total}</b></div>)}</div></div></aside></div>{error&&<div className="toast" role="alert" onClick={()=>setError('')}>{error} ✕</div>}<footer>Campaign files are saved locally by the DM · Unsaved room state is lost if the server restarts</footer></div>;
 }

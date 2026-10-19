@@ -10,4 +10,4 @@ export type Token=z.infer<typeof tokenSchema>;
 export type Initiative=z.infer<typeof initiativeSchema>;
 export type BattleMap={image:string; width:number; height:number; cellSize:number; offsetX:number; offsetY:number; showGrid:boolean};
 export type GameState={roomId:string;tokens:Token[];initiative:Initiative[];turnIndex:number;round:number;revision:number;encounterMode?:'exploration'|'combat';playerMovementEnabled?:boolean;battleMap?:BattleMap};
-export type RollResult={by:string;dice:number[];modifier:number;total:number;sides:number;at:string};
+export type RollResult={by:string;dice:number[];modifier:number;total:number;sides:number;at:string;label?:string;advantage?:'normal'|'advantage'|'disadvantage'};

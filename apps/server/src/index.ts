@@ -59,8 +59,11 @@ type Member={id:string;name:string;isDm:boolean;playerId:string}; // CHARACTER_P
 // PRESENCE_V05: membership is authoritative at room join, independent of LiveKit media.
 // CAMPAIGN_PHASE1_V05: campaign assets and scenes remain server-side and DM-only.
 type Scene={id:string;name:string;state:Omit<GameState,'roomId'|'revision'>};
-type Character={format:'dndvtt-character';formatVersion:1;id:string;playerId:string|null;name:string;ancestry:string;characterClass:string;level:number;size:'Small'|'Medium'|'Large'|'Huge'|'Gargantuan';armorClass:number;hitPoints:{current:number;maximum:number};speed:number};
-const characterSchema=z.object({format:z.literal('dndvtt-character'),formatVersion:z.literal(1),id:z.string().uuid(),playerId:z.string().uuid().nullable(),name:z.string().trim().min(1).max(80),ancestry:z.string().max(80),characterClass:z.string().max(80),level:z.number().int().min(1).max(20),size:creatureSizeSchema,armorClass:z.number().int().min(0).max(50),hitPoints:z.object({current:z.number().int().min(0).max(9999),maximum:z.number().int().min(1).max(9999)}).strict(),speed:z.number().int().min(0).max(500)}).strict();
+type Character={sheet?:z.infer<typeof sheetSchema>;format:'dndvtt-character';formatVersion:1;id:string;playerId:string|null;name:string;ancestry:string;characterClass:string;level:number;size:'Small'|'Medium'|'Large'|'Huge'|'Gargantuan';armorClass:number;hitPoints:{current:number;maximum:number};speed:number};
+// CHARACTER_SHEET_V06: optional, backward-compatible 2014 5e sheet fields.
+const ability=z.number().int().min(1).max(30);
+const sheetSchema=z.object({abilities:z.object({str:ability,dex:ability,con:ability,int:ability,wis:ability,cha:ability}).strict(),proficiencies:z.object({savingThrows:z.array(z.enum(['str','dex','con','int','wis','cha'])).max(6),skills:z.array(z.enum(['Acrobatics','Animal Handling','Arcana','Athletics','Deception','History','Insight','Intimidation','Investigation','Medicine','Nature','Perception','Performance','Persuasion','Religion','Sleight of Hand','Stealth','Survival'])).max(18)}).strict(),hitDice:z.object({total:z.number().int().min(0).max(20),remaining:z.number().int().min(0).max(20),die:z.number().int().min(4).max(20)}).strict(),temporaryHitPoints:z.number().int().min(0).max(9999),deathSaves:z.object({successes:z.number().int().min(0).max(3),failures:z.number().int().min(0).max(3)}).strict(),conditions:z.array(z.enum(['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grappled','Incapacitated','Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious'])).max(15),notes:z.string().max(4000)}).strict();
+const characterSchema=z.object({format:z.literal('dndvtt-character'),formatVersion:z.literal(1),id:z.string().uuid(),playerId:z.string().uuid().nullable(),name:z.string().trim().min(1).max(80),ancestry:z.string().max(80),characterClass:z.string().max(80),level:z.number().int().min(1).max(20),size:creatureSizeSchema,armorClass:z.number().int().min(0).max(50),hitPoints:z.object({current:z.number().int().min(0).max(9999),maximum:z.number().int().min(1).max(9999)}).strict(),speed:z.number().int().min(0).max(500),sheet:sheetSchema.optional()}).strict();
 type Campaign={format:'dndvtt-campaign';formatVersion:1;id:string;name:string;activeSceneId:string;scenes:Scene[];characters:Character[]};
 type Room={state:GameState;dmSecret:string;members:Map<string,Member>;campaign:Campaign};
 const sceneState=(state:GameState):Scene['state']=>({tokens:structuredClone(state.tokens),initiative:structuredClone(state.initiative),turnIndex:state.turnIndex,round:state.round,encounterMode:state.encounterMode,playerMovementEnabled:state.playerMovementEnabled,battleMap:state.battleMap?structuredClone(state.battleMap):undefined});
@@ -120,15 +123,17 @@ io.on('connection',socket=>{
  });
  function current(){if(!roomId||!member)return null;const room=rooms.get(roomId);return room?.members.has(socket.id)?room:null;}
  socket.on('character:save',(raw,reply)=>{
-  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const room=current();if(!room||!member)return reply?.({error:'Not joined'});
   const parsed=characterSchema.safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid character file'});
   const c=parsed.data;const characters=room.campaign.characters;
   const index=characters.findIndex(x=>x.id===c.id);
+  if(!member.isDm&&(index<0||characters[index].playerId!==member.playerId||c.playerId!==member.playerId))return reply?.({error:'Not your character'});
   if(index<0&&characters.length>=100)return reply?.({error:'Maximum 100 characters'});
   if(c.playerId&&characters.some(x=>x.id!==c.id&&x.playerId===c.playerId))return reply?.({error:'Player already has a character'});
   if(index<0)characters.push(c);else characters[index]=c;
   room.state.revision++;send(room);sendCampaign(room);reply?.({ok:true});
  });
+ socket.on('character:get',(raw,reply)=>{const room=current();if(!room||!member)return reply?.({error:'Not joined'});const p=z.object({id:z.string().uuid()}).safeParse(raw);if(!p.success)return reply?.({error:'Invalid ID'});const c=room.campaign.characters.find(x=>x.id===p.data.id);if(!c||(!member.isDm&&c.playerId!==member.playerId))return reply?.({error:'Character unavailable'});reply?.({ok:true,character:structuredClone(c)});});
  socket.on('character:mine',(_,reply)=>{const room=current();if(!room||!member)return reply?.({error:'Not joined'});reply?.({ok:true,characters:room.campaign.characters.filter(c=>c.playerId===member!.playerId).map(c=>({id:c.id,name:c.name}))});});
  socket.on('character:export',(raw,reply)=>{
   const room=current();if(!room||!member)return reply?.({error:'Not joined'});
@@ -267,6 +272,16 @@ io.on('connection',socket=>{
  socket.on('initiative:next',(_,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
   if(room.state.initiative.length){room.state.turnIndex++;if(room.state.turnIndex>=room.state.initiative.length){room.state.turnIndex=0;room.state.round++;}room.state.revision++;send(room);}reply?.({ok:true});
+ });
+ // CHARACTER_DICE_V06: server rolls both d20s and chooses the correct one.
+ socket.on('dice:character',(raw,reply)=>{
+  const room=current();if(!room||!member)return reply?.({error:'Not joined'});
+  const parsed=z.object({label:z.string().min(1).max(90),modifier:z.number().int().min(-100).max(100),advantage:z.enum(['normal','advantage','disadvantage'])}).strict().safeParse(raw);
+  if(!parsed.success)return reply?.({error:'Invalid character roll'});
+  const {label,modifier,advantage}=parsed.data;const dice=Array.from({length:advantage==='normal'?1:2},()=>randomInt(1,21));
+  const selected=advantage==='advantage'?Math.max(...dice):advantage==='disadvantage'?Math.min(...dice):dice[0];
+  const result={by:member.name,dice,modifier,total:selected+modifier,sides:20,at:new Date().toISOString(),label,advantage};
+  io.to(room.state.roomId).emit('dice:result',result);reply?.({ok:true});
  });
  socket.on('dice:roll',(raw,reply)=>{
   const room=current();if(!room||!member)return reply?.({error:'Not joined'});

@@ -66,3 +66,62 @@
 .debug-head{display:flex;justify-content:space-between;gap:12px;font-size:12px}.debug-head strong{letter-spacing:.09em}.debug-head span{color:#d4bc89}
 .debug-controls{display:flex;gap:7px;flex-wrap:wrap;margin:9px 0}.debug-controls button{font-size:12px;padding:6px 9px}.debug-controls button:disabled{opacity:.45;cursor:not-allowed}
 .debug-recorder p{color:#aab9ca;font-size:11px;margin:5px 0}.debug-events{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#101722;padding:9px;border-radius:6px;font-size:10px;line-height:1.5}
+
+/* V06_PHASE22A_MENU */
+.vtt-menu-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 14px;border-bottom:1px solid #555;position:relative;z-index:20;min-height:40px;background:var(--surface,#171b24)}
+.vtt-menu{position:relative}
+.vtt-menu>summary{list-style:none;cursor:pointer;padding:6px 12px;border-radius:6px;user-select:none;font-size:14px}
+.vtt-menu>summary::-webkit-details-marker{display:none}
+.vtt-menu[open]>summary,.vtt-menu>summary:hover{background:rgba(140,160,190,.2)}
+.vtt-menu-items{position:absolute;top:100%;left:0;min-width:215px;max-height:min(65vh,550px);overflow:auto;background:#252b37;border:1px solid #667080;border-radius:8px;padding:7px;box-shadow:0 12px 28px #0008;display:flex;flex-direction:column;gap:3px;z-index:30}
+.vtt-menu-items button{display:block;width:100%;text-align:left;white-space:nowrap}
+.vtt-menu-items button:disabled{opacity:.45;cursor:not-allowed}
+.vtt-menu-note{font-size:12px;opacity:.85;padding:7px;display:block}
+.vtt-menu-note select{display:block;width:100%;margin-top:5px}
+.vtt-menu-check{padding:6px;font-size:13px;display:flex;align-items:center;gap:8px}
+.vtt-menu-character{border-top:1px solid #56606b;padding:7px 2px;display:flex;flex-direction:column;gap:3px}
+.vtt-menu-character strong{font-size:13px;padding:3px}
+.vtt-menu-context{margin-left:auto;font-size:13px;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:36vw}
+.vtt-menu-save{font-size:12px;opacity:.8;white-space:nowrap}
+@media(max-width:700px){.vtt-menu-context{order:2;max-width:100%;margin-left:0}.vtt-menu-save{order:3}}
+
+/* V06_PHASE22B_DICE: drawer preference is per browser, not shared with other players. */
+.vtt-dice-workspace{transition:grid-template-columns .18s ease;align-items:stretch}
+.vtt-dice-workspace.vtt-dice-collapsed{grid-template-columns:minmax(0,1fr) 48px}
+.vtt-dice-workspace.vtt-dice-combat-collapsed{grid-template-columns:minmax(0,1fr) 300px}
+.vtt-dice-sidebar{min-width:0}
+.vtt-dice-toggle-row{display:flex;justify-content:flex-end;padding:7px;border-bottom:1px solid #3b4a5f}
+.vtt-dice-toggle{font-size:12px;min-height:34px;padding:6px 9px;white-space:nowrap}
+.vtt-dice-collapsed .vtt-dice-sidebar{padding-bottom:0}
+.vtt-dice-collapsed .vtt-dice-toggle-row{padding:6px 3px;justify-content:center}
+.vtt-dice-collapsed .vtt-dice-toggle{padding:6px;min-width:36px;flex-direction:column;gap:2px}
+.vtt-dice-collapsed .vtt-dice-toggle span{display:none}
+.vtt-dice-drawer[hidden]{display:none}
+.vtt-dice-expanded .vtt-dice-drawer{animation:vtt-dice-enter .16s ease-out}
+@keyframes vtt-dice-enter{from{opacity:.5;transform:translateX(8px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:780px){.vtt-dice-workspace.vtt-dice-expanded,.vtt-dice-workspace.vtt-dice-combat-collapsed{grid-template-columns:minmax(0,1fr)}.vtt-dice-workspace.vtt-dice-collapsed{grid-template-columns:minmax(0,1fr) 48px}.vtt-dice-collapsed .vtt-dice-sidebar{min-height:0}.vtt-dice-workspace.vtt-dice-expanded .vtt-dice-sidebar{min-height:0}}
+@media(prefers-reduced-motion:reduce){.vtt-dice-workspace{transition:none}.vtt-dice-expanded .vtt-dice-drawer{animation:none}}
+
+
+/* V06_PHASE22B_UI_FIX: allow the dice log to use available sidebar height. */
+.vtt-dice-sidebar{display:flex;flex-direction:column;min-height:0}
+.vtt-dice-drawer:not([hidden]){display:flex;flex-direction:column;flex:1;min-height:0}
+.vtt-dice-drawer .rolls{flex:1;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain}
+.vtt-dice-sidebar .vtt-dice-toggle-row{flex-shrink:0}
+.vtt-dice-drawer .dice-title,.vtt-dice-drawer .dice-buttons{flex-shrink:0}
+.vtt-app-version{font-size:12px!important;color:#e1b97c!important;white-space:nowrap;letter-spacing:.02em}
+@media(max-width:780px){.vtt-dice-sidebar{min-height:300px}.vtt-dice-collapsed .vtt-dice-sidebar{min-height:0}}
+
+
+/* V06_PHASE22C_POPOUT: detached LiveKit video and chat workspace. */
+.media-popout-controller{width:100%;min-width:0}
+.media-popout-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 4px 10px;color:#b8c7d9;font-size:12px;font-weight:650}
+.media-popout-toolbar button,.media-heading-actions button{font-size:12px;padding:6px 10px}
+.media-popout-anchor.media-is-popped{display:none}
+.media-popout-host{width:100%;min-width:0}
+.media-heading-actions{display:flex;align-items:center;gap:8px}
+.media-popout-window .media-popout-host{min-height:100vh;padding:12px;display:flex;flex-direction:column}
+.media-popout-window .media-shell{display:flex;flex-direction:column;flex:1;min-height:0}
+.media-popout-window .media-shell .media-live{height:calc(100vh - 70px);min-height:260px;flex:1}
+.media-popout-window .media-shell .media-live.media-collapsed{height:0;min-height:0;flex:0}
+.media-popout-window .media-shell .lk-chat{max-width:45vw}
