@@ -1,12 +1,12 @@
-import MediaRoom from './MediaRoom';
+import MediaRoom, {type MediaRoomHandle} from './MediaRoom';
 import CharacterSheet, {type SheetCharacter} from './CharacterSheet';
 import BattleBoard from './BattleBoard';
-import DebugRecorder, {trace,traceRoomState,traceOutgoing} from './DebugRecorder'; // DEBUG_RECORDER_0322
+import {trace,traceRoomState,traceOutgoing,debugStart,debugStop,debugMark,debugDownload,debugClear,debugStatus} from './DebugRecorder'; // DEBUG_RECORDER_0322
 import {useEffect,useRef,useState, type ChangeEvent} from 'react';
 import {storeRecovery,readRecovery} from './campaignRecovery'; // CAMPAIGN_PHASE2_V05
 import {io, type Socket} from 'socket.io-client';
 import type {GameState,RollResult,CreatureSize} from '@tabletop/shared';
-import {Dices,Users,Map as MapIcon,Plus,ArrowRight,Copy} from 'lucide-react';
+import {Dices,Users,Map as MapIcon,Plus,ArrowRight,Copy,BookOpen,UserRound,X} from 'lucide-react';
 const API=import.meta.env.VITE_API_URL || '';
 type Member={id:string;name:string;isDm:boolean;playerId:string}; // CHARACTER_PHASE3_V05
 type RoomView={state:GameState;members:Member[]};
@@ -49,10 +49,41 @@ export default function App(){
  const [accessPassword,setAccessPassword]=useState(''); const [accessError,setAccessError]=useState('');
  const [error,setError]=useState('');const [rolls,setRolls]=useState<RollResult[]>([]);
  // V06_PHASE22B_DICE: local preference, never affects room/game state.
- const [diceOpen,setDiceOpen]=useState<boolean>(()=>{try{return localStorage.getItem('dndvtt-dice-drawer-open')!=='false';}catch{return true;}});
- useEffect(()=>{try{localStorage.setItem('dndvtt-dice-drawer-open',String(diceOpen));}catch{/* storage optional */}},[diceOpen]);
+ // V07_PHASE41A: zoom is owned by the application shell and rendered in the fixed bottom bar.
+ // V07_PHASE41A2: fixed bottom bar map controls and fit-to-window.
+ const [mapZoom,setMapZoom]=useState(75);
+ const [mapAllowStack,setMapAllowStack]=useState(false);
+ const [mapUploadRequest,setMapUploadRequest]=useState(0);
+ const mapViewportRef=useRef<HTMLDivElement>(null);
+ const [mapViewportSize,setMapViewportSize]=useState({width:0,height:0});
+ useEffect(()=>{const el=mapViewportRef.current;if(!el)return;const measure=()=>setMapViewportSize({width:el.clientWidth,height:el.clientHeight});measure();const ro=new ResizeObserver(measure);ro.observe(el);return ()=>ro.disconnect();},[room?.state.battleMap?.image]);
+ const fitMapToWindow=()=>{const map=room?.state.battleMap;if(!map)return;const el=mapViewportRef.current?.querySelector<HTMLElement>('.battle-scroll');const width=el?.clientWidth||0;const height=el?.clientHeight||0;if(!width||!height||!map.width||!map.height)return;const percent=Math.min(width/map.width,height/map.height)*100;setMapZoom(Math.max(1,Math.min(400,Math.floor(percent))));};
+ const [diceOpen,setDiceOpen]=useState<boolean>(false);
+ const [v07Overlay,setV07Overlay]=useState<'dice'|'spells'|'character'|null>(null);
+ const [v07SheetPicker,setV07SheetPicker]=useState(false);
+ // V07_PHASE21_DEFAULT_CHARACTER: per-campaign/player local preference, not a campaign mutation.
+ const [v07DefaultId,setV07DefaultId]=useState<string>('');
+ const v07DefaultKey='dndvtt-default-character:'+String(campaign?.id||'unknown')+':'+playerId.current;
+ const v07Choices=me?.isDm?(campaign?.characters||[]):myCharacters;
+ const v07Selected=v07Choices.find(c=>c.id===v07DefaultId)||v07Choices[0]||null;
+ useEffect(()=>{try{setV07DefaultId(localStorage.getItem(v07DefaultKey)||'');}catch{setV07DefaultId('');}},[v07DefaultKey]);
+ function v07SetDefault(id:string){setV07DefaultId(id);try{localStorage.setItem(v07DefaultKey,id);}catch{/* storage optional */}}
+ function v07OpenDefaultSheet(){
+   setV07Overlay('character');
+   if(!v07Selected){setEditingCharacter(null);setV07SheetPicker(true);return;}
+   if(editingCharacter?.id===v07Selected.id){setV07SheetPicker(false);return;}
+   setEditingCharacter(null);setV07SheetPicker(false);
+   void openSheet(v07Selected.id);
+ }
 
- const [tokenName,setTokenName]=useState('Hero');const [tokenSize,setTokenSize]=useState<CreatureSize>('Medium');const [initiativeName,setInitiativeName]=useState('Goblin');const [initiativeScore,setInitiativeScore]=useState(12);
+ useEffect(()=>{setDiceOpen(v07Overlay==='dice');},[v07Overlay]);
+ useEffect(()=>{const close=(e:KeyboardEvent)=>{if(e.key==='Escape'){setV07Overlay(null);setEditingCharacter(null);setV07SheetPicker(false);}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[]);
+
+ // V07_PHASE41B: application menu owns the recorder and media popup.
+ const mediaRef=useRef<MediaRoomHandle>(null);
+ const [debugMenuTick,setDebugMenuTick]=useState(0);
+ const refreshDebug=()=>setDebugMenuTick(n=>n+1);
+const [initiativeName,setInitiativeName]=useState('Goblin');const [initiativeScore,setInitiativeScore]=useState(12);
  const socket=useRef<Socket|null>(null);const joined=useRef<{roomId:string;name:string;dmSecret:string;playerId:string}|null>(null);
  useEffect(()=>{fetch(`${API}/api/auth/status`).then(r=>r.json()).then(data=>setAccess(data.authenticated?'granted':'required')).catch(()=>setAccess('required'));},[]);
  async function loginAccess(){setAccessError('');try{const r=await fetch(`${API}/api/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:accessPassword})});if(!r.ok){const data=await r.json();throw Error(data.error||'Login failed');}location.reload();}catch(e){setAccessError(e instanceof Error?e.message:'Login failed');}}
@@ -132,7 +163,7 @@ export default function App(){
   const blob=new Blob([JSON.stringify(r.character,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);
   const link=document.createElement('a');link.href=url;link.download=(r.character.name.replace(/[^a-z0-9 _-]/gi,'').trim()||'Character')+'.dndchar';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
  }catch(e){setError(e instanceof Error?e.message:'Export failed');}}
- async function openSheet(id:string){try{const r=await characterAck('character:get',{id});if(!r.ok||!r.character)throw Error(r.error||'Character unavailable');setEditingCharacter(r.character);}catch(e){setError(e instanceof Error?e.message:'Cannot open sheet');}}
+ async function openSheet(id:string){try{const r=await characterAck('character:get',{id});if(!r.ok||!r.character)throw Error(r.error||'Character unavailable');setEditingCharacter(r.character);setV07SheetPicker(false);setV07Overlay('character');}catch(e){setError(e instanceof Error?e.message:'Cannot open sheet');}}
  async function rollSheet(label:string,modifier:number,advantage:'normal'|'advantage'|'disadvantage'){const r=await new Promise<{ok?:boolean;error?:string}>(resolve=>socket.current?.emit('dice:character',{label,modifier,advantage},resolve));if(!r?.ok)throw Error(r?.error||'Roll failed');}
  async function saveSheet(c:SheetCharacter){const r=await characterAck('character:save',c);if(!r.ok)throw Error(r.error||'Save failed');}
  async function assignCharacter(id:string){const c=campaign?.characters.find(x=>x.id===id);if(!c)return;
@@ -185,10 +216,10 @@ export default function App(){
  // PRIVATE_GAME_ACCESS_V1: authentication gate, then separate DM/player entry forms.
  if(access==='checking')return <main className="landing"><section className="join-card"><div className="brand">⚔ TABLETOP</div><p>Checking access…</p></section></main>;
  if(access==='required')return <main className="landing"><section className="join-card"><div className="brand">⚔ TABLETOP</div><h1>Private game</h1><p>Enter your group's access password to continue.</p><form onSubmit={e=>{e.preventDefault();void loginAccess();}}><label>Access password<input type="password" autoFocus value={accessPassword} onChange={e=>setAccessPassword(e.target.value)} autoComplete="current-password" required/></label><button className="primary" type="submit">Enter tabletop <ArrowRight size={17}/></button></form>{accessError&&<p className="error" role="alert">{accessError}</p>}</section></main>;
- if(!room||!me)return <main className="landing"><section className="entry-shell"><div className="brand">⚔ TABLETOP <small>v0.6.0 PRIVATE ALPHA</small></div><h1>Gather your party.</h1><p className="entry-intro">Create a new adventure or join a game already in progress.</p><div className="entry-grid"><section className="entry-panel"><div className="entry-icon"><Plus size={24}/></div><h2>Create a Room</h2><p>Start a new adventure as Dungeon Master.</p><form onSubmit={e=>{e.preventDefault();void create();}}><label>Dungeon Master name<input value={dmName} onChange={e=>setDmName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><p className="entry-hint">We'll generate a room code you can share with your players.</p><button type="submit" className="primary">Create Room <ArrowRight size={17}/></button></form></section><section className="entry-panel"><div className="entry-icon"><Users size={24}/></div><h2>Join a Room</h2><p>Enter the room code your Dungeon Master shared.</p><form onSubmit={e=>{e.preventDefault();join(roomInput.trim(),'');}}><label>Player name<input value={name} onChange={e=>setName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><label>Room code<input value={roomInput} onChange={e=>setRoomInput(e.target.value)} placeholder="e.g. a1b2c3d4" required/></label><button type="submit">Join Room <ArrowRight size={17}/></button></form></section></div>{error&&<p className="error" role="alert">{error}</p>}</section></main>;
+ if(!room||!me)return <main className="landing"><section className="entry-shell"><div className="brand">⚔ TABLETOP <small>v0.7.0 PRIVATE ALPHA</small></div><h1>Gather your party.</h1><p className="entry-intro">Create a new adventure or join a game already in progress.</p><div className="entry-grid"><section className="entry-panel"><div className="entry-icon"><Plus size={24}/></div><h2>Create a Room</h2><p>Start a new adventure as Dungeon Master.</p><form onSubmit={e=>{e.preventDefault();void create();}}><label>Dungeon Master name<input value={dmName} onChange={e=>setDmName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><p className="entry-hint">We'll generate a room code you can share with your players.</p><button type="submit" className="primary">Create Room <ArrowRight size={17}/></button></form></section><section className="entry-panel"><div className="entry-icon"><Users size={24}/></div><h2>Join a Room</h2><p>Enter the room code your Dungeon Master shared.</p><form onSubmit={e=>{e.preventDefault();join(roomInput.trim(),'');}}><label>Player name<input value={name} onChange={e=>setName(e.target.value)} maxLength={40} placeholder="Your name" required/></label><label>Room code<input value={roomInput} onChange={e=>setRoomInput(e.target.value)} placeholder="e.g. a1b2c3d4" required/></label><button type="submit">Join Room <ArrowRight size={17}/></button></form></section></div>{error&&<p className="error" role="alert">{error}</p>}</section></main>;
 
  const state=room.state;const inCombat=state.encounterMode==='combat';
- return <div className="app"><header>{/* V06_PHASE22B_UI_FIX */}<strong>⚔ TABLETOP</strong><span className="vtt-app-version" aria-label="Application version">v0.6.0</span><span>Room {state.roomId}</span><button onClick={()=>navigator.clipboard.writeText(`${location.origin}/?room=${state.roomId}`)}><Copy size={15}/> Copy invite link</button><span className="tag">{me.isDm?'DUNGEON MASTER':'PLAYER'}</span></header>
+ return <div className="app"><header className={inCombat?"v07-combat-header":""}>{/* V06_PHASE22B_UI_FIX */}<strong>⚔ TABLETOP</strong><span className="vtt-app-version" aria-label="Application version">v0.7.0</span><span>Room {state.roomId}</span>{/* V07_PHASE43_MODE_TOGGLE: synchronized DM-only mode switch. */}<div className="v07-header-mode-toggle" role="group" aria-label="Encounter mode"><button type="button" className={!inCombat?'is-active exploration':''} aria-pressed={!inCombat} disabled={!me.isDm} title={me.isDm?'Switch to Exploration':'Only the DM can change encounter mode'} onClick={()=>emit('encounter:mode',{mode:'exploration'})}>Exploration</button><button type="button" className={inCombat?'is-active combat':''} aria-pressed={inCombat} disabled={!me.isDm} title={me.isDm?'Switch to Combat':'Only the DM can change encounter mode'} onClick={()=>emit('encounter:mode',{mode:'combat'})}>Combat</button></div><button onClick={()=>navigator.clipboard.writeText(`${location.origin}/?room=${state.roomId}`)}><Copy size={15}/> Copy invite link</button><span className="tag">{me.isDm?'DUNGEON MASTER':'PLAYER'}</span></header>
  {/* V06_PHASE22A_MENU: native disclosure menus; all permissions checked in actions and server. */}
  <nav className="vtt-menu-bar" aria-label="Application menus" /* V06_PHASE22A_MENU_FIX */
   onClickCapture={e=>{
@@ -204,6 +235,7 @@ export default function App(){
   }}
   onKeyDown={e=>{if(e.key==='Escape'){document.querySelectorAll('details.vtt-menu[open]').forEach(el=>(el as HTMLDetailsElement).open=false);}}}>
 
+  {/* V07_PHASE45_PLAYER_MENUS: shared menu headings, read-only player details. */}
   <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Campaign</summary><div className="vtt-menu-items">
    {me.isDm?<>
     <button onClick={()=>{if(window.confirm('Leave this room and create a new campaign? Save your current campaign first.')){sessionStorage.removeItem('dmSecret');location.href=location.pathname;}}}>New…</button>
@@ -213,23 +245,46 @@ export default function App(){
     <button disabled={saving||!campaign} onClick={()=>void saveAs()}>Save As…</button>
     <label className="vtt-menu-check" title="Requires an authorized local campaign file"><input type="checkbox" checked={autoSave} disabled={!directFile} onChange={e=>setAutoSave(e.target.checked)}/> Autosave</label>
     {recoveryAvailable&&<button onClick={()=>void restoreRecovery()}>Restore recovery…</button>}
-   </>:<span className="vtt-menu-note">Campaign files are managed by the DM.</span>}
+   </>:<><span className="vtt-menu-note">Campaign: {campaign?.name||'No campaign loaded'}</span><span className="vtt-menu-note">Scenes: {campaign?.scenes.length??0}</span><span className="vtt-menu-note">Campaign files are managed by the DM.</span></>}
   </div></details>
   <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Character</summary><div className="vtt-menu-items">
+   <details className="v07-default-menu"><summary>Default Character ›</summary><div className="v07-default-options">
+    {v07Choices.length===0?<span className="vtt-menu-note">No assigned characters</span>:v07Choices.map(c=><button key={c.id} type="button" onClick={()=>v07SetDefault(c.id)}><span aria-hidden="true">{v07Selected?.id===c.id?'✓':'\u00a0'}</span> {c.name}</button>)}
+   </div></details>
    {me.isDm&&<><button onClick={()=>void addCharacter()}>New character…</button><button onClick={()=>characterInput.current?.click()}>Import .dndchar…</button></>}
    {(me.isDm?(campaign?.characters||[]):myCharacters).length===0&&<span className="vtt-menu-note">No characters available</span>}
    {(me.isDm?(campaign?.characters||[]):myCharacters).map(c=><div className="vtt-menu-character" key={c.id}><strong>{c.name}</strong><button onClick={()=>void openSheet(c.id)}>Open sheet</button>{me.isDm&&<button onClick={()=>void assignCharacter(c.id)}>Assign…</button>}<button onClick={()=>void exportCharacter(c.id)}>Export .dndchar</button></div>)}
   </div></details>
   <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Scene</summary><div className="vtt-menu-items">
-   {me.isDm?<><label className="vtt-menu-note">Current scene<select aria-label="Select scene" value={campaign?.activeSceneId||''} onChange={e=>void switchScene(e.target.value)}>{campaign?.scenes.map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}</select></label><button onClick={()=>void addScene()}>New scene…</button><button onClick={()=>void renameScene()}>Rename scene…</button></>:<span className="vtt-menu-note">The DM controls scenes.</span>}
+   {me.isDm?<><label className="vtt-menu-note">Current scene<select aria-label="Select scene" value={campaign?.activeSceneId||''} onChange={e=>void switchScene(e.target.value)}>{campaign?.scenes.map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}</select></label><button onClick={()=>void addScene()}>New scene…</button><button onClick={()=>void renameScene()}>Rename scene…</button><button type="button" onClick={()=>setMapUploadRequest(n=>n+1)}>Upload map…</button></>:<><span className="vtt-menu-note">Current scene: {campaign?.scenes.find(sc=>sc.id===campaign.activeSceneId)?.name||'No scene selected'}</span><span className="vtt-menu-note">Available scenes: {campaign?.scenes.map(sc=>sc.name).join(', ')||'None'}</span><span className="vtt-menu-note">The DM controls scenes.</span></>}
   </div></details>
+  {/* V07_PHASE4: encounter controls use server-synchronized mode. */}
+  <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Encounter</summary><div className="vtt-menu-items">
+   <span className="vtt-menu-note">Current mode: {inCombat?'Combat':'Exploration'}</span>
+   {me.isDm?<>
+    <button type="button" disabled={!inCombat} onClick={()=>emit('encounter:mode',{mode:'exploration'})}>Return to Exploration</button>
+    <button type="button" disabled={inCombat} onClick={()=>emit('encounter:mode',{mode:'combat'})}>Enter Combat</button>
+   </>:<><span className="vtt-menu-note">Round: {state.round}</span><span className="vtt-menu-note">Current turn: {state.initiative[state.turnIndex]?.name||'None'}</span><span className="vtt-menu-note">Turn order: {state.initiative.map(i=>i.name).join(' → ')||'No combatants'}</span><span className="vtt-menu-note">Only the DM can change encounter mode.</span></>}
+  </div></details>
+  <details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Session</summary><div className="vtt-menu-items">
+   <button type="button" onClick={()=>mediaRef.current?.join()}>Join Voice &amp; Video ↗</button>
+   {me.isDm&&<label className="vtt-menu-check"><input type="checkbox" checked={!!state.playerMovementEnabled} onChange={e=>emit('settings:movement',{enabled:e.target.checked})}/> Allow players to move assigned tokens</label>}
+   <span className="vtt-menu-note">{room.members.length} player(s) connected</span>
+  </div></details>
+  {me.isDm&&<details className="vtt-menu" onMouseLeave={e=>{e.currentTarget.open=false;}}><summary>Debug</summary><div className="vtt-menu-items">
+   <span className="vtt-menu-note" data-refresh={debugMenuTick}>{debugStatus().recording?'● Recording':'Stopped'} · {debugStatus().count} events</span>
+   <button type="button" disabled={debugStatus().recording} onClick={()=>{debugStart(state);refreshDebug();}}>Start recording</button>
+   <button type="button" disabled={!debugStatus().recording} onClick={()=>{debugStop();refreshDebug();}}>Stop recording</button>
+   <button type="button" disabled={!debugStatus().recording} onClick={()=>{debugMark();refreshDebug();}}>⚑ Mark Bug</button>
+   <button type="button" disabled={!debugStatus().count} onClick={debugDownload}>Download Log</button>
+   <button type="button" onClick={()=>{debugClear(state);refreshDebug();}}>Clear Log</button>
+  </div></details>}
   <span className="vtt-menu-context" title={campaign?.name||'Campaign'}>{campaign?.name||'Campaign'} · {campaign?.scenes.find(sc=>sc.id===campaign.activeSceneId)?.name||'Scene'}</span>
   {me.isDm&&<span className="vtt-menu-save" role="status">{dirty?'● Unsaved changes':saveLabel||'Saved'}{directFile?' · Local file':''}</span>}
  </nav>
  <input ref={fileInput} type="file" accept=".dndcamp,application/json" style={{display:'none'}} onChange={openCampaign}/>
  <input ref={characterInput} type="file" accept=".dndchar,application/json" style={{display:'none'}} onChange={e=>void importCharacter(e)}/>
- {editingCharacter&&<CharacterSheet character={editingCharacter} onSave={saveSheet} onRoll={rollSheet} onClose={()=>setEditingCharacter(null)}/>}
- <section className="video-row media-section"><MediaRoom roomId={state.roomId} socketId={me.id} api={API}/></section>
+ <section className="v07-media-controller" aria-label="Voice and video popup controller"><MediaRoom ref={mediaRef} roomId={state.roomId} socketId={me.id} api={API}/></section>
  <section aria-label="Game server presence" style={{padding:'10px 16px',borderBottom:'1px solid #555',display:'flex',alignItems:'flex-start',gap:16,flexWrap:'wrap'}}>
   <div style={{display:'flex',alignItems:'center',gap:8}}><span aria-hidden="true" style={{color:connected?'#69d59a':'#f3b366'}}>●</span><strong>{connected?'Connected to game server':'Reconnecting to game server…'}</strong><span style={{opacity:.75}}>· Video optional</span></div>
   <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}><strong>Players ({room.members.length} online):</strong>{room.members.map(m=><span key={m.id} style={{padding:'3px 9px',border:'1px solid #777',borderRadius:14,whiteSpace:'nowrap'}}><span aria-hidden="true" style={{color:'#69d59a'}}>●</span> {m.name}{m.isDm?' (DM)':''}{m.id===me.id?' (you)':''}</span>)}</div>
@@ -241,6 +296,30 @@ export default function App(){
   <label style={{display:'flex',alignItems:'center',gap:6}}><input type="checkbox" checked={!!state.playerMovementEnabled} onChange={e=>emit('settings:movement',{enabled:e.target.checked})}/> Allow players to move assigned tokens</label></>}
   <small>Hidden enemies are revealed separately by the DM.</small>
  </div>
- <div className={`workspace vtt-dice-workspace ${diceOpen?"vtt-dice-expanded":inCombat?"vtt-dice-combat-collapsed":"vtt-dice-collapsed"}`}><section className="map-panel"><div className="panel-title"><span><MapIcon size={17}/> Shared tabletop</span><small>{me.isDm?'DM controls movement':state.playerMovementEnabled?'Move your assigned token':'Ask the DM to move your character'} · 1 square = 5 ft</small></div><BattleBoard state={state} members={room.members} isDm={me.isDm} meId={me.playerId} emit={emit} />{me.isDm&&<DebugRecorder state={state}/>}{me.isDm&&<div className="toolbar"><input aria-label="Token name" value={tokenName} onChange={e=>setTokenName(e.target.value)} maxLength={40}/><select aria-label="New token size" value={tokenSize} onChange={e=>setTokenSize(e.target.value as CreatureSize)}>{(['Small','Medium','Large','Huge','Gargantuan'] as const).map(size=><option key={size} value={size}>{size} ({size==='Large'?'2×2':size==='Huge'?'3×3':size==='Gargantuan'?'4×4':'1×1'})</option>)}</select><button onClick={()=>emit('token:add',{name:tokenName,color:'#538fc1',ownerId:null,size:tokenSize})}><Plus size={15}/> Add token</button><select aria-label="Assign token to player" onChange={e=>{const id=e.target.value;if(!id)return;emit('token:add',{name:room.members.find(m=>m.id===id)?.name||'Hero',color:'#65b58e',ownerId:room.members.find(m=>m.id===id)?.playerId??id,size:tokenSize});e.target.value='';}} defaultValue=""><option value="">Add player token…</option>{room.members.filter(m=>!m.isDm).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>}</section>
- <aside className="vtt-dice-sidebar" aria-label="Dice and initiative controls"><div className="vtt-dice-toggle-row"><button type="button" className="vtt-dice-toggle" aria-expanded={diceOpen} aria-controls="vtt-dice-drawer" title={diceOpen?'Collapse dice drawer':'Expand dice drawer'} onClick={()=>setDiceOpen(open=>!open)}><Dices size={18}/><span>{diceOpen?'Hide dice':'Show dice'}</span><span aria-hidden="true">{diceOpen?'›':'‹'}</span></button></div>{inCombat&&<><div className="panel-title">Initiative <span>Round {state.round}</span></div><div className="initiative">{state.initiative.length===0&&<p className="muted">No combatants yet.</p>}{state.initiative.map((c,i)=><div key={c.id} className={'combatant '+(i===state.turnIndex?'active':'')}><span>{c.name}</span><b>{c.score}</b></div>)}</div>{me.isDm&&<><div className="formrow"><input aria-label="Combatant" value={initiativeName} onChange={e=>setInitiativeName(e.target.value)}/><input aria-label="Initiative score" type="number" value={initiativeScore} onChange={e=>setInitiativeScore(Number(e.target.value))}/><button onClick={()=>emit('initiative:add',{name:initiativeName,score:initiativeScore})}>Add</button></div><button className="primary" onClick={()=>emit('initiative:next',{})}>Next turn →</button></>}</>}<div id="vtt-dice-drawer" className="vtt-dice-drawer" hidden={!diceOpen}><div className="panel-title dice-title"><Dices size={18}/> Dice</div><div className="dice-buttons">{[4,6,8,10,12,20,100].map(s=><button key={s} onClick={()=>emit('dice:roll',{count:1,sides:s,modifier:0})}>d{s}</button>)}</div><div className="rolls">{rolls.map((r,i)=><div key={i}><b>{r.by}</b> {r.label?`${r.label} (${r.advantage||'normal'})`: `d${r.sides}`}: {r.dice.join(r.advantage&&r.advantage!=='normal'?' or ':'+')} {r.modifier?`(${r.modifier>0?'+':''}${r.modifier})`:''} = <b>{r.total}</b></div>)}</div></div></aside></div>{error&&<div className="toast" role="alert" onClick={()=>setError('')}>{error} ✕</div>}<footer>Campaign files are saved locally by the DM · Unsaved room state is lost if the server restarts</footer></div>;
+ <div className={`workspace vtt-dice-workspace v07-map-workspace ${diceOpen?"vtt-dice-expanded":inCombat?"vtt-dice-combat-collapsed":"vtt-dice-collapsed"}`}>
+ {inCombat&&<div className="v07-initiative-hud" aria-label="Combat initiative tracker">
+  <span className="v07-round-label">Round {state.round}</span>
+  {state.initiative.length===0?<span className="v07-no-initiative">No combatants in initiative</span>:Array.from({length:Math.min(4,state.initiative.length)},(_,offset)=>{
+   const idx=(Math.max(0,state.turnIndex)+offset)%state.initiative.length;
+   const combatant=state.initiative[idx];
+   return <div key={`${combatant.id}-${offset}`} className={'v07-initiative-person '+(offset===0?'v07-initiative-current':'')}><span>{offset===0?'Current':`Next ${offset}`}</span><strong>{combatant.name}</strong><small>{combatant.score}</small></div>;
+  })}
+  {me.isDm&&<div className="v07-initiative-actions"><input aria-label="Combatant" value={initiativeName} onChange={e=>setInitiativeName(e.target.value)} placeholder="Combatant"/><input aria-label="Initiative score" type="number" value={initiativeScore} onChange={e=>setInitiativeScore(Number(e.target.value))}/><button type="button" onClick={()=>emit('initiative:add',{name:initiativeName,score:initiativeScore})}>Add</button><button type="button" onClick={()=>emit('initiative:next',{})} disabled={!state.initiative.length}>Next turn →</button></div>}
+ </div>}
+ <section className="map-panel" ref={mapViewportRef}><div className="panel-title"><span><MapIcon size={17}/> Shared tabletop</span><small>{me.isDm?'DM controls movement':state.playerMovementEnabled?'Move your assigned token':'Ask the DM to move your character'} · 1 square = 5 ft</small></div><BattleBoard state={state} members={room.members} isDm={me.isDm} meId={me.playerId} emit={emit} zoom={mapZoom} allowStack={mapAllowStack} uploadRequest={mapUploadRequest} /></section>
+</div>
+ <div className="v07-overlay-rail" aria-label="Map overlay controls">
+  <button aria-label="Dice tray" title="Dice tray" aria-pressed={v07Overlay==='dice'} onClick={()=>setV07Overlay(o=>o==='dice'?null:'dice')}><Dices size={21}/></button>
+  {!me.isDm&&<button aria-label="Spell tracker" title="Spell tracker" aria-pressed={v07Overlay==='spells'} onClick={()=>setV07Overlay(o=>o==='spells'?null:'spells')}><BookOpen size={21}/></button>}
+  <button aria-label="Character sheet" title="Character sheet" aria-pressed={v07Overlay==='character'} onClick={()=>{if(v07Overlay==='character'){setV07Overlay(null);setEditingCharacter(null);}else{v07OpenDefaultSheet();}}}><UserRound size={21}/></button>
+ </div>
+ {v07Overlay&&<div className="v07-overlay-backdrop" onClick={()=>{setV07Overlay(null);setEditingCharacter(null);}} aria-hidden="true"/>}
+ {v07Overlay&&<aside className={'v07-overlay-panel v07-overlay-'+v07Overlay} aria-label={v07Overlay==='dice'?'Dice tray':v07Overlay==='spells'?'Spell tracker':'Character sheet'}>
+  <div className="v07-overlay-heading"><strong>{v07Overlay==='dice'?'Dice tray':v07Overlay==='spells'?'Spell tracker':'Character sheet'}</strong><button aria-label="Close overlay" onClick={()=>{setV07Overlay(null);setEditingCharacter(null);}}><X size={18}/></button></div>
+  {v07Overlay==='dice'&&<><div className="dice-buttons">{[4,6,8,10,12,20,100].map(s=><button key={s} onClick={()=>emit('dice:roll',{count:1,sides:s,modifier:0})}>d{s}</button>)}</div><div className="v07-overlay-rolls rolls">{rolls.map((r,i)=><div key={i}><b className="v07-roll-player">{r.by}</b> <span className="v07-roll-detail">{r.label?`${r.label} (${r.advantage||'normal'})`:`d${r.sides}`}: {r.dice.join(r.advantage&&r.advantage!=='normal'?' or ':'+')} {r.modifier?`(${r.modifier>0?'+':''}${r.modifier})`:''} = <b>{r.total}</b></span></div>)}</div></>}
+  {v07Overlay==='spells'&&<p className="v07-placeholder">Spell Tracker — Coming Soon</p>}
+  {v07Overlay==='character'&&<>{(!editingCharacter||v07SheetPicker)&&<div className="v07-character-picker">{(me.isDm?(campaign?.characters||[]):myCharacters).length===0?<p>No characters available.</p>:(me.isDm?(campaign?.characters||[]):myCharacters).map(c=><button key={c.id} onClick={()=>void openSheet(c.id)}>{c.name}</button>)}</div>}{editingCharacter&&!v07SheetPicker&&<CharacterSheet character={editingCharacter} drawer onSave={saveSheet} onRoll={rollSheet} onClose={()=>{setEditingCharacter(null);setV07Overlay(null);}}/>}</>}
+ </aside>}
+ {error&&<div className="toast" role="alert" onClick={()=>setError('')}>{error} ✕</div>}<footer className="v07-bottom-bar" aria-label="Bottom bar"><span className="v07-bottom-status">{connected?'● Connected':'● Reconnecting'} · {inCombat?'Combat':'Exploration'} · 1 square = 5 ft</span>{me.isDm&&<div className="v07-bottom-map" aria-label="DM map controls"><label><input type="checkbox" checked={mapAllowStack} onChange={e=>setMapAllowStack(e.target.checked)}/> Allow stacking</label><label>Cell px <input aria-label="Grid cell size in pixels" type="number" min="16" max="200" value={state.battleMap?.cellSize??50} onChange={e=>emit('map:update',{...(state.battleMap||{}),cellSize:Number(e.target.value)})}/></label><label>Grid X <input aria-label="Grid horizontal offset" type="number" value={state.battleMap?.offsetX??0} onChange={e=>emit('map:update',{...(state.battleMap||{}),offsetX:Number(e.target.value)})}/></label><label>Grid Y <input aria-label="Grid vertical offset" type="number" value={state.battleMap?.offsetY??0} onChange={e=>emit('map:update',{...(state.battleMap||{}),offsetY:Number(e.target.value)})}/></label><label><input type="checkbox" checked={state.battleMap?.showGrid??true} onChange={e=>emit('map:update',{...(state.battleMap||{}),showGrid:e.target.checked})}/> Show grid</label>{state.battleMap?.image&&<button type="button" onClick={()=>emit('map:update',{...state.battleMap,image:''})}>Clear map</button>}</div>}
+ <div className="v07-bottom-zoom" aria-label="Battle map zoom controls"><button type="button" aria-label="Zoom out" title="Zoom out" onClick={()=>setMapZoom(z=>Math.max(1,z-5))}>−</button><input aria-label="Map zoom" type="range" min="1" max="400" step="1" value={mapZoom} onChange={e=>setMapZoom(Number(e.target.value))}/><button type="button" aria-label="Zoom in" title="Zoom in" onClick={()=>setMapZoom(z=>Math.min(400,z+5))}>+</button><output aria-label="Zoom percentage">{mapZoom}%</output><button type="button" aria-label="Fit map to window" title="Fit map to window" onClick={fitMapToWindow}>⛶</button></div></footer></div>;
 }

@@ -3,18 +3,77 @@ import {useEffect,useRef,useState,type ChangeEvent,type PointerEvent} from 'reac
 import type {GameState,CreatureSize} from '@tabletop/shared';
 
 type Member={id:string;name:string;isDm:boolean;playerId:string};
-type Props={state:GameState;members:Member[];isDm:boolean;meId:string;emit:(event:string,payload:unknown,onAck?:(error?:string)=>void)=>void};
+type Props={state:GameState;members:Member[];isDm:boolean;meId:string;zoom:number;allowStack:boolean;uploadRequest:number;emit:(event:string,payload:unknown,onAck?:(error?:string)=>void)=>void};
 const footprint=(size?:CreatureSize)=>({Small:1,Medium:1,Large:2,Huge:3,Gargantuan:4})[size??'Medium'];
 const blank={image:'',width:1200,height:800,cellSize:50,offsetX:0,offsetY:0,showGrid:true};
-export default function BattleBoard({state,members,isDm,meId,emit}:Props){
+export default function BattleBoard({state,members,isDm,meId,emit,zoom,allowStack,uploadRequest}:Props){
  const map=state.battleMap??blank;
- const [zoom,setZoom]=useState(75);const [allowStack,setAllowStack]=useState(false);
+ // V07_PHASE41A: map zoom comes from the fixed application bottom bar.
  const [selected,setSelected]=useState('');
  const [placing,setPlacing]=useState(''); // token awaiting a hidden map location
  const [showPrepared,setShowPrepared]=useState(true);
  const [editing,setEditing]=useState<{name:string;color:string;ownerId:string;size:CreatureSize}|null>(null);
+ const mapFileInputRef=useRef<HTMLInputElement>(null);
  const [loading,setLoading]=useState(false);
+ useEffect(()=>{if(uploadRequest>0&&isDm)mapFileInputRef.current?.click();},[uploadRequest,isDm]);
  const [message,setMessage]=useState('');
+ // V07_PHASE3_HIDDEN_DRAG_FIX
+ // V07_PHASE3_CONTEXT_MENU: contextual actions reuse existing server events and permissions.
+ // V07_PHASE44: empty-map menu and location-specific token creation.
+ const [context,setContext]=useState<{id:string;x:number;y:number}|null>(null);
+ const [mapContext,setMapContext]=useState<{x:number;y:number;gridX:number;gridY:number}|null>(null);
+ const [newToken,setNewToken]=useState<{name:string;size:CreatureSize;color:string;ownerId:string;x:number;y:number}|null>(null);
+ const scrollRef=useRef<HTMLDivElement>(null);
+ const panRef=useRef<{id:number;x:number;y:number;left:number;top:number;active:boolean}|null>(null);
+ const [panning,setPanning]=useState(false);
+ const contextRef=useRef<HTMLDivElement>(null);
+ const contextToken=state.tokens.find(t=>t.id===context?.id);
+ function chooseToken(t:GameState['tokens'][number]){
+  setSelected(t.id);
+  setEditing({name:t.name,color:t.color,ownerId:t.ownerId??'',size:t.size??'Medium'});
+ }
+ function openContext(e:React.MouseEvent<HTMLDivElement>,t:GameState['tokens'][number]){
+  e.preventDefault();e.stopPropagation();
+  chooseToken(t);
+  setMapContext(null);setContext({id:t.id,x:Math.max(8,Math.min(e.clientX,window.innerWidth-270)),y:Math.max(8,Math.min(e.clientY,window.innerHeight-290))});
+ }
+ useEffect(()=>{
+  if(!context)return;
+  const close=(e:globalThis.PointerEvent)=>{if(!contextRef.current?.contains(e.target as Node))setContext(null);};
+  const key=(e:KeyboardEvent)=>{if(e.key==='Escape')setContext(null);};
+  const scroll=()=>setContext(null);
+  document.addEventListener('pointerdown',close,true);
+  document.addEventListener('keydown',key);
+  window.addEventListener('resize',scroll);
+  window.addEventListener('scroll',scroll,true);
+  return()=>{document.removeEventListener('pointerdown',close,true);document.removeEventListener('keydown',key);window.removeEventListener('resize',scroll);window.removeEventListener('scroll',scroll,true);};
+ },[context]);
+ function mapRightClick(e:React.MouseEvent<HTMLDivElement>){
+  if(!isDm||((e.target as HTMLElement).closest('.battle-token,.ambush-ghost')))return;
+  e.preventDefault();e.stopPropagation();setContext(null);
+  const grid=gridAt(e.clientX,e.clientY);
+  setMapContext({x:Math.min(e.clientX,window.innerWidth-205),y:Math.min(e.clientY,window.innerHeight-90),gridX:grid.x,gridY:grid.y});
+ }
+ function panDown(e:PointerEvent<HTMLDivElement>){
+  if(e.button!==0||placing||((e.target as HTMLElement).closest('.battle-token,.ambush-ghost')))return;
+  const el=scrollRef.current;if(!el)return;
+  panRef.current={id:e.pointerId,x:e.clientX,y:e.clientY,left:el.scrollLeft,top:el.scrollTop,active:false};
+  setMapContext(null);setContext(null);
+  e.preventDefault();
+ }
+ useEffect(()=>{
+  const move=(e:globalThis.PointerEvent)=>{
+   const p=panRef.current,el=scrollRef.current;if(!p||p.id!==e.pointerId||!el)return;
+   if(e.pointerType==='mouse'&&!(e.buttons&1)){panRef.current=null;setPanning(false);return;}
+   if(!p.active&&Math.hypot(e.clientX-p.x,e.clientY-p.y)>4){p.active=true;setPanning(true);}
+   if(p.active){el.scrollLeft=p.left-(e.clientX-p.x);el.scrollTop=p.top-(e.clientY-p.y);}
+  };
+  const stop=(e:globalThis.PointerEvent)=>{if(panRef.current?.id===e.pointerId){panRef.current=null;setPanning(false);}};
+  const blur=()=>{panRef.current=null;setPanning(false);};
+  document.addEventListener('pointermove',move,true);document.addEventListener('pointerup',stop,true);document.addEventListener('pointercancel',stop,true);window.addEventListener('blur',blur);
+  return()=>{document.removeEventListener('pointermove',move,true);document.removeEventListener('pointerup',stop,true);document.removeEventListener('pointercancel',stop,true);window.removeEventListener('blur',blur);};
+ },[]);
+ useEffect(()=>{if(!mapContext&&!newToken)return;const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){setMapContext(null);setNewToken(null);}};document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key);},[mapContext,newToken]);
  const boardRef=useRef<HTMLDivElement>(null);
  const [dragPreview,setDragPreview]=useState<{id:string;x:number;y:number}|null>(null); // LIVE_GRID_DRAG_V031
  const [pendingMove,setPendingMove]=useState<{id:string;x:number;y:number;originX:number;originY:number}|null>(null); // HOLD_UNTIL_SYNC_V031
@@ -94,7 +153,14 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
   if(!Number.isFinite(scale)||scale<=0)return {x:d.originX,y:d.originY};
   const dx=(clientX-d.startX)/scale/map.cellSize;
   const dy=(clientY-d.startY)/scale/map.cellSize;
-  return {x:Math.max(0,Math.min(10000,Math.round(d.originX+dx))),y:Math.max(0,Math.min(10000,Math.round(d.originY+dy)))};
+  // Keep the complete token footprint inside the actual map, including grid offsets.
+  const size=footprint(state.tokens.find(t=>t.id===d.id)?.size);
+  const minX=Math.max(0,Math.ceil(-map.offsetX/map.cellSize));
+  const minY=Math.max(0,Math.ceil(-map.offsetY/map.cellSize));
+  const maxX=Math.floor((map.width-map.offsetX)/map.cellSize)-size;
+  const maxY=Math.floor((map.height-map.offsetY)/map.cellSize)-size;
+  const clamp=(value:number,lo:number,hi:number)=>hi<lo?lo:Math.max(lo,Math.min(hi,value));
+  return {x:clamp(Math.round(d.originX+dx),minX,maxX),y:maxY<minY?d.originY:Math.max(minY,Math.min(maxY,Math.round(d.originY+dy)))};
  }
  function moving(e:globalThis.PointerEvent){
   const d=drag.current;
@@ -174,33 +240,51 @@ export default function BattleBoard({state,members,isDm,meId,emit}:Props){
    </div>
   </section>}
   <div className="battle-actions">
-   <label>Zoom <input aria-label="Map zoom" type="range" min="25" max="200" step="5" value={zoom} onChange={e=>setZoom(Number(e.target.value))}/><b>{zoom}%</b></label>
-   <button type="button" onClick={()=>setZoom(100)}>100%</button>
    <span className="battle-note">Scroll to pan · 1 square = 5 ft · {isDm?'DM moves tokens':state.playerMovementEnabled?'Move your assigned token':'DM controls movement'}</span>
-   {isDm&&<label className="battle-upload">{loading?'Preparing…':'Upload map'}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={loading} onChange={e=>void upload(e)}/></label>}
+
   </div>
-  {isDm&&<div className="battle-settings"><label><input type="checkbox" checked={allowStack} onChange={e=>setAllowStack(e.target.checked)}/> Allow stacking (DM override)</label>
-   <label>Cell px <input type="number" min="16" max="200" value={map.cellSize} onChange={e=>sendMap({cellSize:Number(e.target.value)})}/></label>
-   <label>Grid X <input type="number" value={map.offsetX} onChange={e=>sendMap({offsetX:Number(e.target.value)})}/></label>
-   <label>Grid Y <input type="number" value={map.offsetY} onChange={e=>sendMap({offsetY:Number(e.target.value)})}/></label>
-   <label><input type="checkbox" checked={map.showGrid} onChange={e=>sendMap({showGrid:e.target.checked})}/> Show grid</label>
-   {map.image&&<button type="button" onClick={()=>sendMap({image:''})}>Clear map</button>}
-  </div>}
+  {isDm&&<input ref={mapFileInputRef} type="file" accept="image/png,image/jpeg,image/webp" disabled={loading} onChange={e=>void upload(e)} style={{display:'none'}} aria-label="Upload map image"/>}
   {message&&<div className="battle-message" role="status">{message}</div>}
-  <div className="battle-scroll" aria-label="Scrollable shared tactical map">
-   <div ref={boardRef} className="battle-canvas" onClick={boardClick} onDragOver={e=>{if(isDm)e.preventDefault();}} onDrop={boardDrop} style={{width:map.width*zoom/100,height:map.height*zoom/100,cursor:placing?"crosshair":undefined}}>
+  <div ref={scrollRef} className={"battle-scroll v07-pan-scroll"+(panning?" v07-panning":"")} aria-label="Scrollable shared tactical map">
+   <div ref={boardRef} className="battle-canvas" onPointerDown={panDown} onContextMenu={mapRightClick} onClick={boardClick} onDragOver={e=>{if(isDm)e.preventDefault();}} onDrop={boardDrop} style={{width:map.width*zoom/100,height:map.height*zoom/100,cursor:placing?"crosshair":undefined}}>
     <div className="battle-content" style={{width:map.width,height:map.height,transform:`scale(${zoom/100})`,transformOrigin:'top left',backgroundImage:map.image?`url(${map.image})`:undefined,backgroundSize:'100% 100%'}}>
      {map.showGrid&&<div className="battle-grid" style={{backgroundSize:`${map.cellSize}px ${map.cellSize}px`,backgroundPosition:`${map.offsetX}px ${map.offsetY}px`}}/>}
      {isDm&&showPrepared&&staged.filter(t=>t.prepared).map(t=><div key={'ghost-'+t.id} className="ambush-ghost"
-       title={'Hidden: '+t.name} style={{left:map.offsetX+t.x*map.cellSize,top:map.offsetY+t.y*map.cellSize,
+       title={'Hidden: '+t.name} data-token-id={t.id} style={{left:map.offsetX+(dragPreview?.id===t.id?dragPreview.x:pendingMove?.id===t.id?pendingMove.x:t.x)*map.cellSize,top:map.offsetY+(dragPreview?.id===t.id?dragPreview.y:pendingMove?.id===t.id?pendingMove.y:t.y)*map.cellSize,
        width:Math.max(24,map.cellSize*footprint(t.size)-2),height:Math.max(24,map.cellSize*footprint(t.size)-2),background:t.color}}
-       onClick={e=>{e.stopPropagation();setSelected(t.id);setEditing({name:t.name,color:t.color,ownerId:t.ownerId??'',size:t.size??'Medium'});}}>
+       onPointerDown={e=>down(e,t)} onClick={e=>{e.stopPropagation();chooseToken(t);}} onContextMenu={e=>openContext(e,t)}>
        {t.name.slice(0,2).toUpperCase()}</div>)}
-     {state.tokens.filter(t=>!t.staged).map(t=><div key={t.id} data-token-id={t.id} className={'battle-token'+(selected===t.id?' battle-selected':'')} title={`${t.name} (${t.x},${t.y})`} style={{left:map.offsetX+(dragPreview?.id===t.id?dragPreview.x:pendingMove?.id===t.id?pendingMove.x:t.x)*map.cellSize,top:map.offsetY+(dragPreview?.id===t.id?dragPreview.y:pendingMove?.id===t.id?pendingMove.y:t.y)*map.cellSize,width:Math.max(24,map.cellSize*footprint(t.size)-2),height:Math.max(24,map.cellSize*footprint(t.size)-2),background:t.color,cursor:isDm||(state.playerMovementEnabled&&t.ownerId===meId)?'grab':'default'}} onPointerDown={e=>down(e,t)} onClick={e=>e.stopPropagation()}>{t.name.slice(0,2).toUpperCase()}</div>)}
+     {state.tokens.filter(t=>!t.staged).map(t=><div key={t.id} data-token-id={t.id} className={'battle-token'+(selected===t.id?' battle-selected':'')+(t.defeated?' v07-token-defeated':'')} title={`${t.name} (${t.x},${t.y})`} style={{left:map.offsetX+(dragPreview?.id===t.id?dragPreview.x:pendingMove?.id===t.id?pendingMove.x:t.x)*map.cellSize,top:map.offsetY+(dragPreview?.id===t.id?dragPreview.y:pendingMove?.id===t.id?pendingMove.y:t.y)*map.cellSize,width:Math.max(24,map.cellSize*footprint(t.size)-2),height:Math.max(24,map.cellSize*footprint(t.size)-2),background:t.color,cursor:isDm||(state.playerMovementEnabled&&t.ownerId===meId)?'grab':'default'}} onPointerDown={e=>down(e,t)} onContextMenu={e=>openContext(e,t)} onClick={e=>e.stopPropagation()}>{t.name.slice(0,2).toUpperCase()}{t.defeated&&<span className="v07-defeated-symbol" aria-label="Defeated">☠</span>}</div>)}
     </div>
    </div>
   </div>
-  {selected&&token&&<div className="battle-selection"><strong>{token.name}</strong><span>Position {token.x},{token.y}</span><span>Distance from origin: {Math.round(Math.hypot(token.x,token.y)*5)} ft</span>
+  {mapContext&&isDm&&<div className="v07-token-context v07-map-context" role="menu" style={{left:Math.max(8,mapContext.x),top:Math.max(8,mapContext.y)}}>
+   <button role="menuitem" type="button" onClick={()=>{setNewToken({name:'Goblin',size:'Medium',color:'#538fc1',ownerId:'',x:mapContext.gridX,y:mapContext.gridY});setMapContext(null);}}>＋ Add Token…</button>
+  </div>}
+  {newToken&&isDm&&<div className="v07-token-dialog-backdrop" onPointerDown={e=>{if(e.target===e.currentTarget)setNewToken(null);}}>
+   <form className="v07-token-dialog" onSubmit={e=>{e.preventDefault();if(!newToken.name.trim())return;emit('token:add',{name:newToken.name.trim(),size:newToken.size,color:newToken.color,ownerId:newToken.ownerId||null,x:newToken.x,y:newToken.y},error=>{if(error)setMessage(error);else setNewToken(null);});}}>
+    <h3>Add Token</h3><p>Place at grid {newToken.x}, {newToken.y}</p>
+    <label>Name<input required maxLength={40} autoFocus value={newToken.name} onChange={e=>setNewToken({...newToken,name:e.target.value})}/></label>
+    <label>Size<select value={newToken.size} onChange={e=>setNewToken({...newToken,size:e.target.value as CreatureSize})}>{(['Small','Medium','Large','Huge','Gargantuan'] as const).map(size=><option key={size} value={size}>{size} ({footprint(size)}×{footprint(size)})</option>)}</select></label>
+    <label>Color<input type="color" value={newToken.color} onChange={e=>setNewToken({...newToken,color:e.target.value})}/></label>
+    <label>Assigned player<select value={newToken.ownerId} onChange={e=>setNewToken({...newToken,ownerId:e.target.value})}><option value="">DM only</option>{members.filter(m=>!m.isDm).map(m=><option key={m.playerId} value={m.playerId}>{m.name}</option>)}</select></label>
+    <div className="v07-token-dialog-actions"><button type="button" onClick={()=>setNewToken(null)}>Cancel</button><button className="primary" type="submit">Add Token</button></div>
+   </form>
+  </div>}
+  {context&&contextToken&&<div ref={contextRef} className="v07-token-context" role="menu" aria-label={'Token actions for '+contextToken.name} style={{left:context.x,top:context.y}}>
+    <div className="v07-token-context-head"><strong>{contextToken.name}</strong><small>{contextToken.size??'Medium'} · {contextToken.defeated?'Defeated':contextToken.staged?'Hidden':'On map'}</small></div>
+    <button role="menuitem" type="button" onClick={()=>{chooseToken(contextToken);setContext(null);/* details panel opens below */}}>⚙ {isDm?'Token details / edit':'Token details'}</button>
+    {isDm&&<>
+      <div className="v07-token-context-divider"/>
+      {contextToken.staged?<button role="menuitem" type="button" disabled={!contextToken.prepared} onClick={()=>{emit('token:reveal',{tokenIds:[contextToken.id]});setContext(null);}}>◉ Reveal token</button>:<button role="menuitem" type="button" onClick={()=>{emit('token:stage',{tokenId:contextToken.id});setContext(null);}}>◌ Hide / return to tray</button>}
+      {contextToken.defeated
+       ? <button role="menuitem" type="button" onClick={()=>{emit('token:defeated',{tokenId:contextToken.id,defeated:false});setContext(null);}}>✚ Revive token</button>
+       : <button role="menuitem" type="button" onClick={()=>{emit('token:defeated',{tokenId:contextToken.id,defeated:true});setContext(null);}}>☠ Mark defeated</button>}
+      {!contextToken.defeated&&<button role="menuitem" type="button" onClick={()=>{emit('initiative:remove-token',{tokenId:contextToken.id},error=>{if(error)window.alert(error);});setContext(null);}}>↪ Remove from initiative</button>}
+      <button className="v07-token-context-danger" role="menuitem" type="button" onClick={()=>{if(window.confirm('Delete token '+contextToken.name+'?')){emit('token:delete',{tokenId:contextToken.id});setSelected('');}setContext(null);}}>✕ Delete token…</button>
+    </>}
+  </div>}
+  {selected&&token&&<div className="battle-selection v07-token-details" role="region" aria-label="Selected token details"><button type="button" className="v07-token-details-close" aria-label="Close token details" onClick={()=>setSelected('')}>✕</button><strong>{token.name}</strong><span>Position {token.x},{token.y}</span><span>Distance from origin: {Math.round(Math.hypot(token.x,token.y)*5)} ft</span>
    {isDm&&editing&&<>{token.staged?<button type="button" disabled={!token.prepared} onClick={()=>emit('token:reveal',{tokenIds:[token.id]})}>Reveal selected</button>:<button type="button" onClick={()=>emit('token:stage',{tokenId:token.id})}>Return to tray (hide)</button>}<input aria-label="Edit token name" maxLength={40} value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})}/><input aria-label="Token color" type="color" value={editing.color} onChange={e=>setEditing({...editing,color:e.target.value})}/><select aria-label="Token size" value={editing.size} onChange={e=>setEditing({...editing,size:e.target.value as CreatureSize})}>{(['Small','Medium','Large','Huge','Gargantuan'] as const).map(size=><option key={size} value={size}>{size} ({footprint(size)}×{footprint(size)})</option>)}</select><select aria-label="Token owner" value={editing.ownerId} onChange={e=>setEditing({...editing,ownerId:e.target.value})}><option value="">DM only</option>{members.filter(m=>!m.isDm).map(m=><option key={m.playerId} value={m.playerId}>{m.name}</option>)}</select><button className={dirty?'primary':''} style={dirty?{boxShadow:'0 0 0 3px rgba(255,190,45,.65)'}:undefined} disabled={!dirty} onClick={()=>emit('token:edit',{tokenId:selected,...editing,ownerId:editing.ownerId||null})}>{dirty?'● Save token (unsaved changes)':'Save token'}</button><button onClick={()=>{emit('token:delete',{tokenId:selected});setSelected('');}}>Delete token</button></>}
   </div>}
  </>;

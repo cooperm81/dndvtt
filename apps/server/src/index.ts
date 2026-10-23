@@ -69,7 +69,7 @@ type Room={state:GameState;dmSecret:string;members:Map<string,Member>;campaign:C
 const sceneState=(state:GameState):Scene['state']=>({tokens:structuredClone(state.tokens),initiative:structuredClone(state.initiative),turnIndex:state.turnIndex,round:state.round,encounterMode:state.encounterMode,playerMovementEnabled:state.playerMovementEnabled,battleMap:state.battleMap?structuredClone(state.battleMap):undefined});
 const makeCampaign=(state:GameState):Campaign=>{const id=randomUUID();return {format:'dndvtt-campaign',formatVersion:1,id:randomUUID(),name:'Untitled Campaign',activeSceneId:id,scenes:[{id,name:'Scene 1',state:sceneState(state)}],characters:[]};};
 const sceneSchema=z.object({id:z.string().uuid(),name:z.string().trim().min(1).max(80),state:z.object({
- tokens:z.array(z.object({id:z.string().uuid(),name:z.string().min(1).max(40),x:z.number().finite().min(0).max(10000),y:z.number().finite().min(0).max(10000),ownerId:z.string().nullable(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),size:creatureSizeSchema.optional(),staged:z.boolean().optional(),prepared:z.boolean().optional()})).max(500),
+ tokens:z.array(z.object({id:z.string().uuid(),name:z.string().min(1).max(40),x:z.number().finite().min(0).max(10000),y:z.number().finite().min(0).max(10000),ownerId:z.string().nullable(),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),size:creatureSizeSchema.optional(),staged:z.boolean().optional(),prepared:z.boolean().optional(),defeated:z.boolean().optional()})).max(500),
  initiative:z.array(initiativeSchema).max(500),turnIndex:z.number().int().min(0).max(500),round:z.number().int().min(1).max(1000000),encounterMode:z.enum(['exploration','combat']).optional(),playerMovementEnabled:z.boolean().optional(),battleMap:z.object({image:z.string().max(2800000).refine(v=>v===''||/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(v)),width:z.number().int().min(200).max(4000),height:z.number().int().min(200).max(4000),cellSize:z.number().int().min(16).max(200),offsetX:z.number().int().min(-2000).max(2000),offsetY:z.number().int().min(-2000).max(2000),showGrid:z.boolean()}).optional()
  }).strict()}).strict();
 const campaignSchema=z.object({format:z.literal('dndvtt-campaign'),formatVersion:z.literal(1),id:z.string().uuid(),name:z.string().trim().min(1).max(100),activeSceneId:z.string().uuid(),scenes:z.array(sceneSchema).min(1).max(30),characters:z.array(characterSchema).max(100).default([])}).strict().refine(c=>c.scenes.some(sc=>sc.id===c.activeSceneId),'Active scene missing').refine(c=>new Set(c.scenes.map(sc=>sc.id)).size===c.scenes.length,'Duplicate scene IDs');
@@ -89,10 +89,10 @@ function publicRoom(room:Room,viewer:Member){
 function send(room:Room){
  for(const m of room.members.values())io.to(m.id).emit('room:state',publicRoom(room,m));
 }
-app.get('/api/health',async()=>({ok:true,version:'0.4.0'}));
+app.get('/api/health',async()=>({ok:true,version:'0.7.0'}));
 app.post('/api/rooms',async()=>{
  const id=shortId(),secret=randomUUID();
- const state:GameState={roomId:id,tokens:[],initiative:[],turnIndex:0,round:1,revision:0,encounterMode:'exploration',playerMovementEnabled:false};
+ const state:GameState={roomId:id,tokens:[],initiative:[],turnIndex:0,round:1,revision:0,encounterMode:'exploration',playerMovementEnabled:true};
  rooms.set(id,{state,dmSecret:secret,members:new Map(),campaign:makeCampaign(state)});
  return {roomId:id,dmSecret:secret};
 });
@@ -165,7 +165,7 @@ io.on('connection',socket=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
   const p=z.string().trim().min(1).max(80).safeParse(raw?.name);if(!p.success)return reply?.({error:'Invalid scene name'});
   if(room.campaign.scenes.length>=30)return reply?.({error:'Maximum 30 scenes'});
-  saveActive(room);const id=randomUUID();room.campaign.scenes.push({id,name:p.data,state:{tokens:[],initiative:[],turnIndex:0,round:1,encounterMode:'exploration',playerMovementEnabled:false}});
+  saveActive(room);const id=randomUUID();room.campaign.scenes.push({id,name:p.data,state:{tokens:[],initiative:[],turnIndex:0,round:1,encounterMode:'exploration',playerMovementEnabled:true}});
   activateScene(room,id);send(room);sendCampaign(room);reply?.({ok:true});
  });
  // CAMPAIGN_PHASE2_V05: scene renames preserve IDs and all scene data.
@@ -209,17 +209,69 @@ io.on('connection',socket=>{
   if((!token.staged||token.prepared)&&room.state.tokens.some(other=>other.id!==token.id&&(!other.staged||other.prepared)&&parsed.data.size!==token.size&&token.x<other.x+tokenFootprint(other.size)&&token.x+newFootprint>other.x&&token.y<other.y+tokenFootprint(other.size)&&token.y+newFootprint>other.y))return reply?.({error:'Size would overlap another token'});
   Object.assign(token,{name:parsed.data.name,color:parsed.data.color,ownerId:room.members.get(parsed.data.ownerId||'')?.playerId??parsed.data.ownerId,size:parsed.data.size});room.state.revision++;send(room);reply?.({ok:true});
  });
+ // V07_PHASE42: token/initiative identity, preserving turn order when a combatant leaves.
+ const linkedInitiative=(room:Room,token:Token)=>{
+  const explicit=room.state.initiative.filter(i=>i.tokenId===token.id);
+  if(explicit.length)return explicit.map(i=>i.id);
+  // Legacy initiative entries have no tokenId. Only match unambiguous names.
+  const matchingTokens=room.state.tokens.filter(t=>t.name===token.name);
+  const matchingEntries=room.state.initiative.filter(i=>i.name===token.name&&!i.tokenId);
+  return matchingTokens.length===1&&matchingEntries.length===1?[matchingEntries[0].id]:[];
+ };
+ const removeInitiative=(room:Room,ids:string[])=>{
+  const removed=new Set(ids);
+  const before=room.state.initiative;
+  const current=before[room.state.turnIndex]?.id;
+  const next=before.filter(i=>!removed.has(i.id));
+  if(next.length===before.length)return;
+  room.state.initiative=next;
+  if(!next.length){room.state.turnIndex=0;return;}
+  const same=next.findIndex(i=>i.id===current);
+  if(same>=0){room.state.turnIndex=same;return;}
+  const previousIndex=room.state.turnIndex;
+  const forward=before.slice(previousIndex+1).concat(before.slice(0,previousIndex)).find(i=>!removed.has(i.id));
+  room.state.turnIndex=Math.max(0,next.findIndex(i=>i.id===forward?.id));
+ };
+ socket.on('token:defeated',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=z.object({tokenId:z.string().uuid(),defeated:z.boolean()}).safeParse(raw);
+  if(!parsed.success)return reply?.({error:'Invalid token state'});
+  const token=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
+  if(!token)return reply?.({error:'Token not found'});
+  token.defeated=parsed.data.defeated;
+  if(token.defeated)removeInitiative(room,linkedInitiative(room,token));
+  room.state.revision++;send(room);reply?.({ok:true});
+ });
+ socket.on('initiative:remove-token',(raw,reply)=>{
+  const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
+  const parsed=z.object({tokenId:z.string().uuid()}).safeParse(raw);
+  if(!parsed.success)return reply?.({error:'Invalid token'});
+  const token=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
+  if(!token)return reply?.({error:'Token not found'});
+  const ids=linkedInitiative(room,token);
+  if(!ids.length)return reply?.({error:'No unambiguous initiative entry linked to this token'});
+  removeInitiative(room,ids);room.state.revision++;send(room);reply?.({ok:true});
+ });
  socket.on('token:delete',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
   const parsed=z.object({tokenId:z.string().uuid()}).safeParse(raw);if(!parsed.success)return reply?.({error:'Invalid token'});
-  room.state.tokens=room.state.tokens.filter(t=>t.id!==parsed.data.tokenId);room.state.revision++;send(room);reply?.({ok:true});
+  const deleted=room.state.tokens.find(t=>t.id===parsed.data.tokenId);if(deleted)removeInitiative(room,linkedInitiative(room,deleted));room.state.tokens=room.state.tokens.filter(t=>t.id!==parsed.data.tokenId);room.state.revision++;send(room);reply?.({ok:true});
  });
  socket.on('token:add',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
-  const parsed=z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable(),size:creatureSizeSchema.optional()}).safeParse(raw);
+  const parsed=z.object({name:z.string().trim().min(1).max(40),color:z.string().regex(/^#[0-9a-fA-F]{6}$/),ownerId:z.string().nullable(),size:creatureSizeSchema.optional(),x:z.number().int().min(0).max(10000).optional(),y:z.number().int().min(0).max(10000).optional()}).safeParse(raw);
   if(!parsed.success)return reply?.({error:'Invalid token'});
   if(parsed.data.ownerId!==null&&!room.members.has(parsed.data.ownerId)&&![...room.members.values()].some(m=>m.playerId===parsed.data.ownerId))return reply?.({error:'Unknown player'});
-  const token:Token={id:randomUUID(),name:parsed.data.name,x:2,y:2,ownerId:room.members.get(parsed.data.ownerId||'')?.playerId??parsed.data.ownerId,color:parsed.data.color,size:parsed.data.size??'Medium',staged:true,prepared:false};
+  const placed=parsed.data.x!==undefined&&parsed.data.y!==undefined;
+  if((parsed.data.x===undefined)!==(parsed.data.y===undefined))return reply?.({error:'Both coordinates are required'});
+  if(placed){
+   const map=room.state.battleMap??{width:1200,height:800,cellSize:50,offsetX:0,offsetY:0};
+   const size=tokenFootprint(parsed.data.size??'Medium');
+   const x=parsed.data.x!,y=parsed.data.y!;
+   if(map.offsetX+x*map.cellSize<0||map.offsetY+y*map.cellSize<0||map.offsetX+(x+size)*map.cellSize>map.width||map.offsetY+(y+size)*map.cellSize>map.height)return reply?.({error:'Token is outside map bounds'});
+   if(room.state.tokens.some(t=>(!t.staged||t.prepared)&&x<t.x+tokenFootprint(t.size)&&x+size>t.x&&y<t.y+tokenFootprint(t.size)&&y+size>t.y))return reply?.({error:'Square occupied. Choose an empty location'});
+  }
+  const token:Token={id:randomUUID(),name:parsed.data.name,x:placed?parsed.data.x!:2,y:placed?parsed.data.y!:2,ownerId:room.members.get(parsed.data.ownerId||'')?.playerId??parsed.data.ownerId,color:parsed.data.color,size:parsed.data.size??'Medium',staged:!placed,prepared:false};
   room.state.tokens.push(token);room.state.revision++;send(room);reply?.({ok:true});
  });
  socket.on('token:move',(raw,reply)=>{
@@ -229,6 +281,10 @@ io.on('connection',socket=>{
   const token=room.state.tokens.find(t=>t.id===parsed.data.tokenId);
   if(!token)return reply?.({error:'Token not found'});
   if(!member.isDm&&(!room.state.playerMovementEnabled||token.staged||token.ownerId!==member.playerId))return reply?.({error:'DM controls token movement'});
+  // Authoritative bounds check: stacking privileges never permit leaving the map.
+  const moveMap=room.state.battleMap??{width:1200,height:800,cellSize:50,offsetX:0,offsetY:0};
+  const moveSize=tokenFootprint(token.size);
+  if(moveMap.offsetX+parsed.data.x*moveMap.cellSize<0||moveMap.offsetY+parsed.data.y*moveMap.cellSize<0||moveMap.offsetX+(parsed.data.x+moveSize)*moveMap.cellSize>moveMap.width||moveMap.offsetY+(parsed.data.y+moveSize)*moveMap.cellSize>moveMap.height)return reply?.({error:'Token cannot move outside map bounds'});
   // Check occupancy on the authoritative state. Never disclose hidden occupants to players.
   const footprint=tokenFootprint(token.size);
   const occupied=room.state.tokens.some(t=>t.id!==token.id && (t.staged?!!t.prepared:true) && parsed.data.x<t.x+tokenFootprint(t.size)&&parsed.data.x+footprint>t.x&&parsed.data.y<t.y+tokenFootprint(t.size)&&parsed.data.y+footprint>t.y);
@@ -264,9 +320,14 @@ io.on('connection',socket=>{
  });
  socket.on('initiative:add',(raw,reply)=>{
   const room=current();if(!room||!member?.isDm)return reply?.({error:'DM only'});
-  const parsed=z.object({name:z.string().trim().min(1).max(40),score:z.number().int().min(-100).max(100)}).safeParse(raw);
+  const parsed=z.object({name:z.string().trim().min(1).max(40),score:z.number().int().min(-100).max(100),tokenId:z.string().uuid().optional()}).safeParse(raw);
   if(!parsed.success)return reply?.({error:'Invalid initiative'});
-  const item={id:randomUUID(),...parsed.data};initiativeSchema.parse(item);
+  const candidate=parsed.data.tokenId?room.state.tokens.find(t=>t.id===parsed.data.tokenId):undefined;
+  if(parsed.data.tokenId&&!candidate)return reply?.({error:'Token not found'});
+  if(candidate?.defeated)return reply?.({error:'Revive token before adding to initiative'});
+  const sameName=room.state.tokens.filter(t=>t.name===parsed.data.name&&!t.defeated);
+  const tokenId=parsed.data.tokenId??(sameName.length===1?sameName[0].id:undefined);
+  const item={id:randomUUID(),...parsed.data,tokenId};initiativeSchema.parse(item);
   room.state.initiative.push(item);room.state.initiative.sort((a,b)=>b.score-a.score);room.state.turnIndex=0;room.state.round=1;room.state.revision++;send(room);reply?.({ok:true});
  });
  socket.on('initiative:next',(_,reply)=>{

@@ -10,7 +10,7 @@ const conditions=['Blinded','Charmed','Deafened','Exhaustion','Frightened','Grap
 const mod=(n:number)=>Math.floor((n-10)/2);
 const signed=(n:number)=>(n>=0?'+':'')+n;
 const field={width:64,background:'#182231',color:'white',border:'1px solid #667',borderRadius:5,padding:5} as const;
-export default function CharacterSheet({character,onSave,onRoll,onClose}:{character:SheetCharacter;onSave:(c:SheetCharacter)=>Promise<void>;onRoll:(label:string,modifier:number,advantage:'normal'|'advantage'|'disadvantage')=>Promise<void>;onClose:()=>void}){
+export default function CharacterSheet({character,onSave,onRoll,onClose,drawer=false}:{character:SheetCharacter;onSave:(c:SheetCharacter)=>Promise<void>;onRoll:(label:string,modifier:number,advantage:'normal'|'advantage'|'disadvantage')=>Promise<void>;onClose:()=>void;drawer?:boolean}){
  const [c,setC]=useState<SheetCharacter>(character);const [rollMode,setRollMode]=useState<'normal'|'advantage'|'disadvantage'>('normal');const [rolling,setRolling]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
  useEffect(()=>setC(character),[character]);
  const sheet=c.sheet||defaultSheet();const prof=Math.ceil(c.level/4)+1;
@@ -25,8 +25,8 @@ export default function CharacterSheet({character,onSave,onRoll,onClose}:{charac
  const heading:CSSProperties={fontSize:13,letterSpacing:1.1,textTransform:'uppercase',color:'#cbd5e1',margin:'0 0 10px'};
  const rowStyle:CSSProperties={display:'flex',alignItems:'center',justifyContent:'space-between',gap:6,padding:'5px 0',borderBottom:'1px solid #ffffff12'};
  const stat=(title:string,value:string|number)=><div style={{...panel,textAlign:'center',flex:'1 1 100px'}}><div style={heading}>{title}</div><strong style={{fontSize:22}}>{value}</strong></div>;
- return <div role="dialog" aria-modal="true" aria-label="Character sheet" style={{position:'fixed',inset:0,zIndex:1000,background:'#000d',overflow:'auto',padding:12}}>
- <div style={{maxWidth:1370,margin:'auto',padding:18,background:'#141e2a',color:'#f2f4f7',border:'1px solid #718096',borderRadius:12}}>
+ return <div role="dialog" aria-modal="true" aria-label="Character sheet" style={drawer?{position:'relative',inset:'auto',zIndex:'auto',background:'transparent',overflow:'visible',padding:0}:{position:'fixed',inset:0,zIndex:1000,background:'#000d',overflow:'auto',padding:12}}>
+ <div style={{maxWidth:drawer?'100%':1370,margin:'auto',padding:drawer?8:18,background:'#141e2a',color:'#f2f4f7',border:'1px solid #718096',borderRadius:12}}>
  <header style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',flexWrap:'wrap',marginBottom:12}}><h2 style={{margin:0}}>Character Sheet · {c.name}</h2><button onClick={onClose}>Close</button></header>
  <section style={{...panel,display:'flex',flexWrap:'wrap',gap:8,alignItems:'center',marginBottom:12}}><label>Name <input aria-label="Character name" value={c.name} maxLength={80} onChange={e=>setC({...c,name:e.target.value})}/></label><label>Class <input aria-label="Class" value={c.characterClass} maxLength={80} onChange={e=>setC({...c,characterClass:e.target.value})}/></label><label>Ancestry <input aria-label="Ancestry" value={c.ancestry} maxLength={80} onChange={e=>setC({...c,ancestry:e.target.value})}/></label>{num('Level',c.level,n=>setC({...c,level:n}),1,20)}<label style={{marginLeft:'auto'}}>Roll mode <select aria-label="Roll mode" value={rollMode} onChange={e=>setRollMode(e.target.value as typeof rollMode)}><option value="normal">Normal</option><option value="advantage">Advantage</option><option value="disadvantage">Disadvantage</option></select></label></section>
  <div style={{display:'grid',gridTemplateColumns:'minmax(155px,0.75fr) minmax(255px,1.2fr) minmax(320px,2fr)',gap:12,alignItems:'start'}} className="dnd-sheet-columns">

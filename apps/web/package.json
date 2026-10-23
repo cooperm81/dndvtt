@@ -1,6 +1,6 @@
 {
   "name": "@tabletop/web",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@tabletop/shared": "0.5.0",
+    "@tabletop/shared": "0.7.0",
     "@vitejs/plugin-react": "^4.4.1",
     "vite": "^6.3.3",
     "typescript": "^5.8.3",

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { LiveKitRoom, VideoConference } from '@livekit/components-react';
 import '@livekit/components-styles';
@@ -6,7 +6,8 @@ import '@livekit/components-styles';
 // V06_PHASE22C_POPOUT: Move one mounted media tree between windows.
 // Moving the host DOM node does NOT create a second LiveKit connection.
 type Props = { roomId: string; socketId: string; api: string };
-export default function MediaRoom({ roomId, socketId, api }: Props) {
+export type MediaRoomHandle={join:()=>void};
+const MediaRoom=forwardRef<MediaRoomHandle,Props>(function MediaRoom({ roomId, socketId, api }, ref) {
   const [connection, setConnection] = useState<{url:string;token:string}|null>(null);
   const [error, setError] = useState('');
   const [enabled, setEnabled] = useState(false);
@@ -24,6 +25,7 @@ export default function MediaRoom({ roomId, socketId, api }: Props) {
     if (anchor.current && host.current && host.current.parentNode !== anchor.current) anchor.current.appendChild(host.current);
     popup.current = null;
     setPopped(false);
+    setEnabled(false);setConnection(null);
   }
   useEffect(() => {
     if (anchor.current && host.current && !host.current.parentNode) anchor.current.appendChild(host.current);
@@ -69,24 +71,21 @@ export default function MediaRoom({ roomId, socketId, api }: Props) {
       restore(); win.close(); setPopError('Unable to open media window: ' + String(e));
     }
   }
-  function returnToMain() {
-    const win = popup.current;
-    restore();
-    if (win && !win.closed) win.close();
-  }
+  // V07_PHASE41B: only the Session menu opens media; no inline player in the tabletop.
+  useImperativeHandle(ref,()=>({join:()=>{popOut();if(popup.current&&!popup.current.closed)setEnabled(true);}}));
   const content = !enabled ? <div className="media-start"><button onClick={() => setEnabled(true)}>Join voice &amp; video</button><small>Camera and microphone permissions will be requested.</small></div>
     : error ? <div className="media-start" role="alert">{error} <button onClick={() => {setEnabled(false);setConnection(null);}}>Retry</button></div>
     : !connection ? <div className="media-start">Connecting to media…</div>
-    : <div className="media-shell" data-lk-theme="default"><div className="media-heading"><div className="media-heading-actions">{popped && <button type="button" onClick={returnToMain}>Return to tabletop</button>}<button type="button" className="media-collapse-toggle" onClick={() => setCollapsed(v => !v)} aria-expanded={!collapsed}>{collapsed ? 'Show video' : 'Hide video'}</button></div></div><div className={'media-live' + (collapsed ? ' media-collapsed' : '')}>
+    : <div className="media-shell" data-lk-theme="default"><div className="media-heading"><div className="media-heading-actions"><button type="button" className="media-collapse-toggle" onClick={() => setCollapsed(v => !v)} aria-expanded={!collapsed}>{collapsed ? 'Show video' : 'Hide video'}</button></div></div><div className={'media-live' + (collapsed ? ' media-collapsed' : '')}>
       <LiveKitRoom token={connection.token} serverUrl={connection.url} connect={true} audio={true} video={true}
         onDisconnected={() => {setEnabled(false);setConnection(null);}} onError={e => setError(e.message)}>
         <VideoConference />
       </LiveKitRoom>
     </div></div>;
   return <div className="media-popout-controller">
-    <div className="media-popout-toolbar"><span>{popped ? 'Voice, video & chat are in a separate window.' : 'Voice, video & chat'}</span><button type="button" onClick={popped ? returnToMain : popOut}>{popped ? 'Bring media back' : 'Pop out media ↗'}</button></div>
     {popError && <p className="error" role="alert">{popError}</p>}
     <div ref={anchor} className={'media-popout-anchor' + (popped ? ' media-is-popped' : '')}/>
     {host.current && createPortal(content, host.current)}
   </div>;
-}
+});
+export default MediaRoom;

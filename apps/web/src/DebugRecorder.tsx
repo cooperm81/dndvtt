@@ -83,3 +83,27 @@ export default function DebugRecorder({state}:{state:GameState}){
   {expanded&&<pre className="debug-events">{recent.map(e=>`${e.seq} ${e.at.slice(11,23)} ${e.kind} ${JSON.stringify(e.detail)}`).join('\n')}</pre>}
  </section>;
 }
+
+// V07_PHASE41B: menu-only debug controls; no recorder panel is rendered.
+let debugPointerCleanup:(()=>void)|null=null;
+let debugPointerLast=0;
+export function debugStatus(){return {recording:enabled,count:events.length};}
+export function debugStart(state:GameState){
+ if(enabled)return;
+ events=[];seq=0;lastState=null;enabled=true;
+ trace('RECORDING_START',{revision:state.revision});traceRoomState(state);
+ const pointer=(e:PointerEvent)=>{
+  const info=nodeInfo(e.target);
+  if(!info.insideMap&&!info.insideTray&&!info.tokenId)return;
+  if(e.type==='pointermove'&&performance.now()-debugPointerLast<100)return;
+  if(e.type==='pointermove')debugPointerLast=performance.now();
+  trace('POINTER_'+e.type.toUpperCase(),{...info,x:e.clientX,y:e.clientY,buttons:e.buttons,button:e.button,pointerId:e.pointerId,isPrimary:e.isPrimary});
+ };
+ const kinds=['pointerdown','pointermove','pointerup','pointercancel','lostpointercapture'] as const;
+ for(const kind of kinds)document.addEventListener(kind,pointer,true);
+ debugPointerCleanup=()=>{for(const kind of kinds)document.removeEventListener(kind,pointer,true);};
+}
+export function debugStop(){if(!enabled)return;trace('RECORDING_STOP');enabled=false;debugPointerCleanup?.();debugPointerCleanup=null;notify();}
+export function debugMark(){if(enabled)trace('BUG_MARKER',{note:'DM marked unexpected behavior'});}
+export function debugDownload(){if(events.length)download();}
+export function debugClear(state:GameState){events=[];seq=0;lastState=null;if(enabled){trace('LOG_CLEARED');traceRoomState(state);}notify();}
